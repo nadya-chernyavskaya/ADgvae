@@ -202,7 +202,7 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         with tf.GradientTape() as tape:
             features_out, z, z_mean, z_log_var  = self((X, adj_orig))  # Forward pass
             # Compute the loss value ( Chamfer plus KL)
-            loss_reco = losses.threeD_loss(X,features_out)
+            loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
             #loss_latent = self.loss_fn_latent(z_mean, z_log_var,self.nodes_n)
             loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
             loss = loss_reco + loss_latent
@@ -219,9 +219,9 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
     def test_step(self, data):
         (X, adj_orig) = data
         features_out, z, z_mean, z_log_var = self((X, adj_orig))  # Forward pass
-        loss_reco = losses.threeD_loss(X,features_out)
-        #loss_latent = self.loss_fn_latent(z_mean, z_log_var,self.nodes_n)
+        loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
         loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
+        loss = loss_reco + loss_latent
         
-        return {'loss' : loss_reco+loss_latent, 'loss_reco': loss_reco, 'loss_latent': loss_latent}    
+        return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}    
     
