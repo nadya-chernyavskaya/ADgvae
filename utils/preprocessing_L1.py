@@ -9,7 +9,7 @@ def normalize_features(particles):
     particles[:,:,idx_pt] = (particles[:,:,idx_pt] - np.min(particles[:,:,idx_pt])) / (np.max(particles[:,:,idx_pt])-np.min(particles[:,:,idx_pt]))
     # standard normalize angles
     particles[:,:,idx_eta] = (particles[:,:,idx_eta] - np.mean(particles[:,:,idx_eta]))/np.std(particles[:,:,idx_eta])
-    particles[:,:,idx_eta] = (particles[:,:,idx_eta] - np.mean(particles[:,:,idx_phi]))/np.std(particles[:,:,idx_phi])
+    particles[:,:,idx_phi] = (particles[:,:,idx_phi] - np.mean(particles[:,:,idx_phi]))/np.std(particles[:,:,idx_phi])
     # min-max normalize class label
     particles[:,:,idx_class] = (particles[:,:,idx_class] - np.min(particles[:,:,idx_class])) / (np.max(particles[:,:,idx_class])-np.min(particles[:,:,idx_class]))
     return particles
@@ -29,7 +29,7 @@ def make_adjacencies(particles):
 
 def prepare_data(filename,start=0,end=-1):
     # set the correct background filename
-    filename = 'datasets/'+filename
+    filename = filename
     ff = h5py.File(filename, 'r')
     particles = np.asarray(ff.get('Particles'))
     nodes_n = particles.shape[1]
