@@ -155,11 +155,10 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
         x = inputs_feat
 
-      #  x = layers.GraphConvolution(output_sz=6, activation=self.activation)(x, inputs_adj)
-      #  x = layers.GraphConvolution(output_sz=8, activation=self.activation)(x, inputs_adj)
-      #  x = layers.GraphConvolution(output_sz=4, activation=self.activation)(x, inputs_adj)
-        for output_sz in reversed(range(2, self.feat_sz)):
-            x = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
+        x = layers.GraphConvolution(output_sz=6, activation=self.activation)(x, inputs_adj)
+        x = layers.GraphConvolution(output_sz=2, activation=self.activation)(x, inputs_adj)
+      #  for output_sz in reversed(range(2, self.feat_sz)):
+      #      x = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
 
         '''create flatten layer'''
         x = klayers.Flatten()(x) #flattened to 2 x nodes_n
@@ -189,12 +188,10 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         ''' reshape to 2 x nodes_n '''
         out = tf.keras.layers.Reshape((self.nodes_n,2), input_shape=(2*self.nodes_n,))(out) 
         ''' reconstruct ''' 
-        for output_sz in range(2+1, self.feat_sz+1): #none of this should be hardcoded , to be fixed
-            out = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
-       # out = layers.GraphConvolution(output_sz=4, activation=self.activation)(out, inputs_adj)
-       # out = layers.GraphConvolution(output_sz=8, activation=self.activation)(out, inputs_adj)
-       # out = layers.GraphConvolution(output_sz=6, activation=self.activation)(out, inputs_adj)
-       # out = layers.GraphConvolution(output_sz=3, activation=self.activation)(out, inputs_adj)
+       # for output_sz in range(2+1, self.feat_sz+1): #TO DO: none of this should be hardcoded , to be fixed
+       #     out = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolution(output_sz=6, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolution(output_sz=3, activation=self.activation)(out, inputs_adj)
 
         decoder =  tf.keras.Model(inputs=(inputs_feat, inputs_adj), outputs=out)
         decoder.summary()
