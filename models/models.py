@@ -142,7 +142,8 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         self.loss_fn_latent = losses.kl_loss
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
-        self.beta_kl = tf.Variable(0.0, trainable=False, name='beta_kl', dtype=tf.float32)
+        self.beta_kl = 10 
+        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
         super(GCNVariationalAutoEncoder , self).__init__(nodes_n, feat_sz, activation, **kwargs)
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
@@ -154,6 +155,9 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
         x = inputs_feat
 
+      #  x = layers.GraphConvolution(output_sz=6, activation=self.activation)(x, inputs_adj)
+      #  x = layers.GraphConvolution(output_sz=8, activation=self.activation)(x, inputs_adj)
+      #  x = layers.GraphConvolution(output_sz=4, activation=self.activation)(x, inputs_adj)
         for output_sz in reversed(range(2, self.feat_sz)):
             x = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
 
@@ -187,6 +191,10 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         ''' reconstruct ''' 
         for output_sz in range(2+1, self.feat_sz+1): #none of this should be hardcoded , to be fixed
             out = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
+       # out = layers.GraphConvolution(output_sz=4, activation=self.activation)(out, inputs_adj)
+       # out = layers.GraphConvolution(output_sz=8, activation=self.activation)(out, inputs_adj)
+       # out = layers.GraphConvolution(output_sz=6, activation=self.activation)(out, inputs_adj)
+       # out = layers.GraphConvolution(output_sz=3, activation=self.activation)(out, inputs_adj)
 
         decoder =  tf.keras.Model(inputs=(inputs_feat, inputs_adj), outputs=out)
         decoder.summary()
@@ -208,14 +216,14 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
             # Compute the loss value ( Chamfer plus KL)
             loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
             loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
-            loss = loss_reco + self.beta_kl * loss_latent
+            loss = loss_reco + self.beta_kl * self.beta_kl_warmup * loss_latent
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         # Return a dict mapping metric names to current value
-        return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent, 'beta_kl':self.beta_kl}
+        return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent, 'beta_kl_warmup':self.beta_kl_warmup}
 
 
     def test_step(self, data):
@@ -223,21 +231,21 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         features_out, z, z_mean, z_log_var = self((X, adj_orig))  # Forward pass
         loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
         loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
-        loss = loss_reco + self.beta_kl * loss_latent
+        loss = loss_reco + self.beta_kl * self.beta_kl_warmup * loss_latent
         return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}   
 
 
 class KLWarmupCallback(tf.keras.callbacks.Callback):
     def __init__(self):
         super(KLWarmupCallback, self).__init__()
-        self.beta_kl = tf.Variable(0.0, trainable=False, name='beta_kl', dtype=tf.float32)
+        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
 
     def on_epoch_begin(self, epoch, logs=None):
         kl_value = (epoch/self.model.kl_warmup_time) * (epoch <= self.model.kl_warmup_time) + 1.0 * (epoch > self.model.kl_warmup_time)
-        tf.keras.backend.set_value(self.model.beta_kl, kl_value)
+        tf.keras.backend.set_value(self.model.beta_kl_warmup, kl_value)
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        logs['beta_kl'] = tf.keras.backend.get_value(self.model.beta_kl)
+        logs['beta_kl_warmup'] = tf.keras.backend.get_value(self.model.beta_kl_warmup)
 
 
