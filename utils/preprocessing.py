@@ -24,7 +24,7 @@ def events_to_input_samples(constituents, features):
 
 
 def normalize_features(particles):
-    idx_pt, idx_eta, idx_phi = range(3)
+    idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt
     particles[:,:,idx_pt] = (particles[:,:,idx_pt] - np.min(particles[:,:,idx_pt])) / (np.max(particles[:,:,idx_pt])-np.min(particles[:,:,idx_pt]))
     # standard normalize angles
