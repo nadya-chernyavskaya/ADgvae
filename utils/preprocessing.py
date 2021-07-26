@@ -15,7 +15,7 @@ def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarr
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-        np.random.shuffle(samples)
+      #  np.random.shuffle(samples)
         return samples  
 
 def events_to_input_samples(constituents, features):
@@ -26,10 +26,10 @@ def events_to_input_samples(constituents, features):
 def normalize_features(particles):
     idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt
-    particles[:,:,idx_pt] = (particles[:,:,idx_pt] - np.min(particles[:,:,idx_pt])) / (np.max(particles[:,:,idx_pt])-np.min(particles[:,:,idx_pt]))
+    particles[:,:,idx_pt] =  (particles[:,:,idx_pt] - np.min(particles[:,:,idx_pt])) / (np.max(particles[:,:,idx_pt])-np.min(particles[:,:,idx_pt]))
     # standard normalize angles
-    particles[:,:,idx_eta] = (particles[:,:,idx_eta] - np.mean(particles[:,:,idx_eta]))/np.std(particles[:,:,idx_eta])
-    particles[:,:,idx_phi] = (particles[:,:,idx_phi] - np.mean(particles[:,:,idx_phi]))/np.std(particles[:,:,idx_phi])
+    particles[:,:,idx_eta] = (particles[:,:,idx_eta] - np.mean(particles[:,:,idx_eta]))/3/np.std(particles[:,:,idx_eta])
+    particles[:,:,idx_phi] = (particles[:,:,idx_phi] - np.mean(particles[:,:,idx_phi]))/3/np.std(particles[:,:,idx_phi])
     return particles
 
 
@@ -62,5 +62,5 @@ def prepare_data(filename,num_instances,start=0,end=-1):
     print('Number of features =',feat_sz)
     A = make_adjacencies(samples)
     A_tilde = normalized_adjacency(A)
-    particles = normalize_features(samples)
+    samples = normalize_features(samples)
     return nodes_n, feat_sz, samples, A, A_tilde
