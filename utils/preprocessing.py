@@ -1,7 +1,8 @@
 import tensorflow as tf
 import numpy as np
 import h5py
-import matplotlib.pyplot as plt
+import matplotlib.pyplot as plti
+import sklearn.utils as skutil
 
 def mask_training_cuts(constituents, features):
     ''' get mask for training cuts requiring a jet-pt > 200'''
@@ -9,6 +10,7 @@ def mask_training_cuts(constituents, features):
     idx_j1Pt, idx_j2Pt = 1, 6
     mask_j1 = features[:, idx_j1Pt] > jetPt_cut
     mask_j2 = features[:, idx_j2Pt] > jetPt_cut
+    ''' normalize jet constituents pt to the jet pt'''
     constituents[:,0,:,2] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,0,:,2]/features[:, idx_j1Pt,None],0.) #pt is 2nd
     constituents[:,1,:,2] = np.where(features[:, idx_j2Pt,None]!=0, constituents[:,1,:,2]/features[:, idx_j2Pt,None],0.) #pt is 2nd
     return mask_j1, mask_j2
@@ -17,7 +19,8 @@ def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarr
         const_j1 = constituents[:,0,:,:][mask_j1]
         const_j2 = constituents[:,1,:,:][mask_j2]
         samples = np.vstack([const_j1, const_j2])
-      #  np.random.shuffle(samples)
+        np.random.shuffle(samples) #this will only shuffle jets
+        samples = np.array([skutil.shuffle(item) for item in samples]) #this is pretty slow though
         return samples  
 
 def events_to_input_samples(constituents, features):
@@ -57,7 +60,6 @@ def prepare_data(filename,num_instances,start=0,end=-1):
     # The dataset is N_jets x N_constituents x N_features
     njet     = samples.shape[0]
     if (njet > num_instances) : samples = samples[:num_instances,:,:]
-    samples = samples[:,0:20,:]
     nodes_n = samples.shape[1]
     feat_sz    = samples.shape[2]
     print('Number of jets =',njet)
@@ -74,11 +76,11 @@ def prepare_data_constituents(filename,num_instances,start=0,end=-1):
     data = h5py.File(filename, 'r') 
     constituents = data['jetConstituentsList'][start:end,]
     features = data['eventFeatures'][start:end,]
+    constituents = constituents[:,:,0:20,:] #first select some, as they are ordered in pt, and we shuffle later
     samples = events_to_input_samples(constituents, features)
     # The dataset is N_jets x N_constituents x N_features
     njet     = samples.shape[0]
     if (njet > num_instances) : samples = samples[:num_instances,:,:]
-    samples = samples[:,0:20,:]
     nodes_n = samples.shape[1]
     feat_sz    = samples.shape[2]
     print('Number of jets =',njet)
