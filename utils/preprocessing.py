@@ -67,3 +67,22 @@ def prepare_data(filename,num_instances,start=0,end=-1):
     A_tilde = normalized_adjacency(A)
     samples = normalize_features(samples)
     return nodes_n, feat_sz, samples, A, A_tilde
+
+def prepare_data_constituents(filename,num_instances,start=0,end=-1):
+    # set the correct background filename
+    filename = filename
+    data = h5py.File(filename, 'r') 
+    constituents = data['jetConstituentsList'][start:end,]
+    features = data['eventFeatures'][start:end,]
+    samples = events_to_input_samples(constituents, features)
+    # The dataset is N_jets x N_constituents x N_features
+    njet     = samples.shape[0]
+    if (njet > num_instances) : samples = samples[:num_instances,:,:]
+    samples = samples[:,0:20,:]
+    nodes_n = samples.shape[1]
+    feat_sz    = samples.shape[2]
+    print('Number of jets =',njet)
+    print('Number of constituents (nodes) =',nodes_n)
+    print('Number of features =',feat_sz)
+    samples = normalize_features(samples)
+    return nodes_n, feat_sz, samples
