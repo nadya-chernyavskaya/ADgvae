@@ -138,11 +138,11 @@ class GraphVariationalAutoencoder(GraphAutoencoder):
 
 class GCNVariationalAutoEncoder(GraphAutoencoder):
     
-    def __init__(self, nodes_n, feat_sz, activation, latent_dim, kl_warmup_time, **kwargs):
+    def __init__(self, nodes_n, feat_sz, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
         self.loss_fn_latent = losses.kl_loss
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
-        self.beta_kl = 10 
+        self.beta_kl = beta_kl 
         self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
         super(GCNVariationalAutoEncoder , self).__init__(nodes_n, feat_sz, activation, **kwargs)
         self.encoder = self.build_encoder()
@@ -155,15 +155,15 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
         x = inputs_feat
 
-        x = layers.GraphConvolution(output_sz=6, activation=self.activation)(x, inputs_adj)
-        x = layers.GraphConvolution(output_sz=2, activation=self.activation)(x, inputs_adj)
+        x = layers.GraphConvolutionBias(output_sz=6, activation=self.activation)(x, inputs_adj)
+        x = layers.GraphConvolutionBias(output_sz=2, activation=self.activation)(x, inputs_adj)
       #  for output_sz in reversed(range(2, self.feat_sz)):
-      #      x = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
+      #      x = layers.GraphConvolutionBias(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
 
         '''create flatten layer'''
         x = klayers.Flatten()(x) #flattened to 2 x nodes_n
         '''create dense layer #1 '''
-        x = klayers.Dense(self.nodes_n, activation='relu')(x)
+        x = klayers.Dense(self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(x) #'relu'
         print(self.nodes_n) 
         ''' create dense layer #2 to make latent space params mu and sigma in last compression to feat_sz = 1 '''
         self.z_mean = klayers.Dense(self.latent_dim, activation=tf.keras.activations.linear)(x)  
@@ -183,15 +183,15 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='decoder_input_adjacency')
         out = inputs_feat
 
-        out = klayers.Dense(self.nodes_n, activation='relu')(out)    
-        out = klayers.Dense(2*self.nodes_n, activation='relu')(out) 
+        out = klayers.Dense(self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(out)     #'relu'
+        out = klayers.Dense(2*self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(out)   #'relu'
         ''' reshape to 2 x nodes_n '''
         out = tf.keras.layers.Reshape((self.nodes_n,2), input_shape=(2*self.nodes_n,))(out) 
         ''' reconstruct ''' 
        # for output_sz in range(2+1, self.feat_sz+1): #TO DO: none of this should be hardcoded , to be fixed
-       #     out = layers.GraphConvolution(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
-        out = layers.GraphConvolution(output_sz=6, activation=self.activation)(out, inputs_adj)
-        out = layers.GraphConvolution(output_sz=3, activation=self.activation)(out, inputs_adj)
+       #     out = layers.GraphConvolutionBias(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolutionBias(output_sz=6, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolutionBias(output_sz=self.feat_sz, activation=self.activation)(out, inputs_adj)
 
         decoder =  tf.keras.Model(inputs=(inputs_feat, inputs_adj), outputs=out)
         decoder.summary()
@@ -238,8 +238,12 @@ class KLWarmupCallback(tf.keras.callbacks.Callback):
         self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
 
     def on_epoch_begin(self, epoch, logs=None):
-        kl_value = (epoch/self.model.kl_warmup_time) * (epoch <= self.model.kl_warmup_time) + 1.0 * (epoch > self.model.kl_warmup_time)
+        if self.model.kl_warmup_time!=0 :
+            kl_value = ((epoch+1)/self.model.kl_warmup_time) * (epoch < self.model.kl_warmup_time) + 1.0 * (epoch >= self.model.kl_warmup_time)
+        else :
+            kl_value=1
         tf.keras.backend.set_value(self.model.beta_kl_warmup, kl_value)
+
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}

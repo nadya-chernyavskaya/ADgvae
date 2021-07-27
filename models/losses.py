@@ -18,3 +18,12 @@ def threeD_loss(inputs, outputs): #[batch_size x 100 x 3] -> [batch_size]
     min_dist_to_outputs = tf.math.reduce_min(distances,2)
     return tf.math.reduce_mean(min_dist_to_inputs, 1) + tf.math.reduce_mean(min_dist_to_outputs, 1)
 
+
+def threeD_loss_manual(inputs, outputs):
+    distances = np.sum(np.subtract(inputs[:,:,np.newaxis,:],outputs[:,np.newaxis,:,:])**2, axis=-1)
+    min_dist_to_inputs = np.min(distances,axis=1)
+    min_dist_to_outputs = np.min(distances,axis=2)
+    return np.sum(min_dist_to_inputs,axis=1) + np.sum(min_dist_to_outputs,axis=1)
+
+
+

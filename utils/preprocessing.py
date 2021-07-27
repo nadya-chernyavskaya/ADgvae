@@ -9,6 +9,8 @@ def mask_training_cuts(constituents, features):
     idx_j1Pt, idx_j2Pt = 1, 6
     mask_j1 = features[:, idx_j1Pt] > jetPt_cut
     mask_j2 = features[:, idx_j2Pt] > jetPt_cut
+    constituents[:,0,:,2] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,0,:,2]/features[:, idx_j1Pt,None],0.) #pt is 2nd
+    constituents[:,1,:,2] = np.where(features[:, idx_j2Pt,None]!=0, constituents[:,1,:,2]/features[:, idx_j2Pt,None],0.) #pt is 2nd
     return mask_j1, mask_j2
 
 def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarray
@@ -55,6 +57,7 @@ def prepare_data(filename,num_instances,start=0,end=-1):
     # The dataset is N_jets x N_constituents x N_features
     njet     = samples.shape[0]
     if (njet > num_instances) : samples = samples[:num_instances,:,:]
+    samples = samples[:,0:20,:]
     nodes_n = samples.shape[1]
     feat_sz    = samples.shape[2]
     print('Number of jets =',njet)

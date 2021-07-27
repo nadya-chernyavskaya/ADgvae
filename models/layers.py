@@ -31,6 +31,66 @@ class GraphConvolution(tf.keras.layers.Layer):
         config.update({'output_sz': self.output_sz, 'activation': self.activation})
         return config
 
+class GraphConvolutionRecurBias(tf.keras.layers.Layer):
+    
+    ''' basic graph convolution layer performing act(AXW1 + XW2 + B), nodes+neigbours and self-loop weights plus bias term '''
+
+    def __init__(self, output_sz, activation=tf.keras.activations.linear, **kwargs):
+        super(GraphConvolutionRecurBias, self).__init__(**kwargs)
+        self.output_sz = output_sz
+        self.activation = activation
+
+    def build(self, input_shape):
+        self.wgt1 = self.add_weight("weight_1",shape=[int(input_shape[-1]), self.output_sz], initializer=tf.keras.initializers.GlorotUniform())
+        # self-loop weights
+        self.wgt2 = self.add_weight("weight_2",shape=[int(input_shape[-1]), self.output_sz], initializer=tf.keras.initializers.GlorotUniform())
+        self.bias = self.add_weight("bias",shape=[self.output_sz], initializer=tf.keras.initializers.GlorotUniform())
+        
+
+    def call(self, inputs, adjacency):
+        xw1 = tf.matmul(inputs, self.wgt1)
+        xw2 = tf.matmul(inputs, self.wgt2)
+        axw1 = tf.matmul(adjacency, xw1)
+        axw = axw1 + xw2           # add node and neighbours weighted features (self reccurency)
+        layer = tf.nn.bias_add(axw, self.bias) 
+        return self.activation(layer)
+    
+
+    def get_config(self):
+        config = super(GraphConvolutionRecurBias, self).get_config()
+        config.update({'output_sz': self.output_sz, 'activation': self.activation})
+        return config
+
+
+class GraphConvolutionBias(tf.keras.layers.Layer):
+    
+    ''' basic graph convolution layer performing act(AXW1 + B), nodes+neigbours plus bias term '''
+
+    def __init__(self, output_sz, activation=tf.keras.activations.linear, **kwargs):
+        super(GraphConvolutionBias, self).__init__(**kwargs)
+        self.output_sz = output_sz
+        self.activation = activation
+
+    def build(self, input_shape):
+        self.wgt1 = self.add_weight("weight_1",shape=[int(input_shape[-1]), self.output_sz], initializer=tf.keras.initializers.GlorotUniform())
+        # self-loop weights
+        self.bias = self.add_weight("bias",shape=[self.output_sz], initializer=tf.keras.initializers.GlorotUniform())
+        
+
+    def call(self, inputs, adjacency):
+        xw1 = tf.matmul(inputs, self.wgt1)
+        axw1 = tf.matmul(adjacency, xw1)
+        layer = tf.nn.bias_add(axw1, self.bias) 
+        return self.activation(layer)
+    
+
+    def get_config(self):
+        config = super(GraphConvolutionBias, self).get_config()
+        config.update({'output_sz': self.output_sz, 'activation': self.activation})
+        return config
+
+
+
 class InnerProductDecoder(tf.keras.layers.Layer):
 
     ''' inner product decoder reconstructing adjacency matrix as act(z^T z) 
