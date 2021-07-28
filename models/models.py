@@ -127,7 +127,7 @@ class GraphVariationalAutoencoder(GraphAutoencoder):
         (X, adj_tilde), adj_orig = data
         pos_weight = tf.cast(adj_orig.shape[1] * adj_orig.shape[2] - tf.math.reduce_sum(adj_orig), tf.float32) / tf.cast(tf.math.reduce_sum(adj_orig), tf.float32)
 
-        z, z_mean, z_log_var, adj_pred = self((X, adj_tilde))  # Forward pass
+        z, z_mean, z_log_var, adj_pred = self((X, adj_tilde), training=False)  # Forward pass
         # Compute the loss value (binary cross entropy for a_ij in {0,1})
         loss_reco =  tf.math.reduce_mean(self.loss_fn(labels=adj_orig, logits=adj_pred, pos_weight=pos_weight))
         loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
@@ -164,7 +164,6 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         x = klayers.Flatten()(x) #flattened to 2 x nodes_n
         '''create dense layer #1 '''
         x = klayers.Dense(self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(x) #'relu'
-        print(self.nodes_n) 
         ''' create dense layer #2 to make latent space params mu and sigma in last compression to feat_sz = 1 '''
         self.z_mean = klayers.Dense(self.latent_dim, activation=tf.keras.activations.linear)(x)  
         self.z_log_var = klayers.Dense(self.latent_dim, activation=tf.keras.activations.linear)(x) 
@@ -225,7 +224,7 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
 
     def test_step(self, data):
         (X, adj_orig) = data
-        features_out, z, z_mean, z_log_var = self((X, adj_orig))  # Forward pass
+        features_out, z, z_mean, z_log_var = self((X, adj_orig), training=False)  # Forward pass
         loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
         loss_latent = tf.math.reduce_mean(self.loss_fn_latent(z_mean, z_log_var))
         loss = loss_reco + self.beta_kl * self.beta_kl_warmup * loss_latent
@@ -235,7 +234,7 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
     
 class EdgeConvAutoEncoder(tf.keras.Model):
 
-    def __init__(self, nodes_n, feat_sz, activation=klayers.LeakyReLU(alpha=0.2), latent_dim=40, **kwargs):
+    def __init__(self, nodes_n, feat_sz, activation, latent_dim, **kwargs):
         super(EdgeConvAutoEncoder, self).__init__(**kwargs)
         self.nodes_n = nodes_n
         self.feat_sz = feat_sz
@@ -243,12 +242,13 @@ class EdgeConvAutoEncoder(tf.keras.Model):
         self.latent_dim = latent_dim
         self.point_channels = 20    
         self.edge_channels  = 20
-        self.k = 15
+        self.k_neighbors = 15
         self.input_shape_points = [self.nodes_n,self.feat_sz]
-        self.input_shape_edges = [self.nodes_n,self.k*self.feat_sz]
-        self.autoencoder = self.build_autoencoder()
+        self.input_shape_edges = [self.nodes_n,self.k_neighbors*self.feat_sz]
+        self.encoder = self.build_encoder()
+        self.decoder = self.build_decoder()
 
-    def build_autoencoder(self):
+    def build_encoder(self):
         in_points = klayers.Input(shape=self.input_shape_points, name="in_points")
         in_edges = klayers.Input(shape=self.input_shape_edges, name="in_edges")    
         
@@ -256,19 +256,19 @@ class EdgeConvAutoEncoder(tf.keras.Model):
         h = klayers.BatchNormalization(name='BatchNorm_points')(in_points)
         # Conv1D with kernel_size=nfeatures to implement a MLP like aggregation of 
         #   input point features
-        h_points = klayers.Conv1D(self.point_channels, kernel_size=1, strides=1
-                          , activation=self.activation
-                          , use_bias="True"
-                          , name='Conv1D_points')(h) 
+        h_points = klayers.Conv1D(self.point_channels, kernel_size=1, strides=1,
+                           activation=self.activation,
+                           use_bias="True",
+                           name='Conv1D_points')(h) 
 
 
         # Input edges features BatchNormalization 
         h = klayers.BatchNormalization(name='BatchNorm_edges')(in_edges)
         # Conv1D (MLP like aggregation) of input edge features
-        h_edges  = klayers.Conv1D(self.edge_channels, kernel_size=1, strides=1
-                          , activation=self.activation
-                          , use_bias="True"
-                          , name='Conv1D_edges')(h)
+        h_edges  = klayers.Conv1D(self.edge_channels, kernel_size=1, strides=1,
+                           activation=self.activation,
+                           use_bias="True",
+                           name='Conv1D_edges')(h)
 
         # Concatenate points+edge features                           
         h = tf.concat([h_points,h_edges],axis=2)
@@ -278,22 +278,28 @@ class EdgeConvAutoEncoder(tf.keras.Model):
     
         #Latent dimension
         hidden = klayers.Dense(self.latent_dim, name = 'latent',activation=self.activation )(h)
+        encoder = tf.keras.Model(inputs=(in_points,in_edges), outputs=hidden,name='EdgeConvEncoder')
+        encoder.summary()
+        return encoder 
 
+    def build_decoder(self):
         #Decode from latent dimension
+        hidden   = klayers.Input(shape=(self.latent_dim, ), name='decoder_input')
         h = klayers.Dense((self.point_channels+self.edge_channels)*self.nodes_n,activation=self.activation )(hidden)
         h = klayers.Reshape((self.nodes_n,self.point_channels+self.edge_channels), input_shape=((self.point_channels+self.edge_channels)*self.nodes_n,))(h) 
-        out = klayers.Conv1D(self.feat_sz, kernel_size=1, strides=1
-                         , activation=self.activation
-                          , use_bias="True"
-                          , name='Conv1D_out')(h)
+        out = klayers.Conv1D(self.feat_sz, kernel_size=1, strides=1,
+                          activation=self.activation,
+                          use_bias="True",
+                          name='Conv1D_out')(h)
 
-        model = tf.keras.Model(inputs=(in_points,in_edges), outputs=out,name='EdgeConvAE')
-        model.summary() 
-        return model
+        decoder = tf.keras.Model(inputs=hidden, outputs=out,name='EdgeConvDecoder')
+        decoder.summary() 
+        return decoder
     
 
     def call(self, inputs):
-        return self.autoencoder(inputs)
+        features_out = self.decoder(self.encoder(inputs))
+        return features_out
 
     def train_step(self, data):
         (nodes_feats_in, edge_feats_in) , nodes_feats_in = data
@@ -321,6 +327,106 @@ class EdgeConvAutoEncoder(tf.keras.Model):
         return {'loss' : loss}
     
     
+
+class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
+    def __init__(self, nodes_n, feat_sz, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
+        self.latent_dim = latent_dim
+        self.kl_warmup_time = kl_warmup_time
+        self.beta_kl = beta_kl 
+        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
+        super(EdgeConvVariationalAutoEncoder, self).__init__(nodes_n, feat_sz, activation,latent_dim, **kwargs)
+        self.encoder = self.build_encoder()
+        self.decoder = self.build_decoder()
+
+    def build_encoder(self):
+        in_points = klayers.Input(shape=self.input_shape_points, name="in_points")
+        in_edges = klayers.Input(shape=self.input_shape_edges, name="in_edges")    
+        
+        # Input point features BatchNormalization 
+        h = klayers.BatchNormalization(name='BatchNorm_points')(in_points)
+        # Conv1D with kernel_size=nfeatures to implement a MLP like aggregation of 
+        #   input point features
+        h_points = klayers.Conv1D(self.point_channels, kernel_size=1, strides=1,
+                           activation=self.activation,
+                           use_bias="True",
+                           name='Conv1D_points')(h) 
+
+
+        # Input edges features BatchNormalization 
+        h = klayers.BatchNormalization(name='BatchNorm_edges')(in_edges)
+        # Conv1D (MLP like aggregation) of input edge features
+        h_edges  = klayers.Conv1D(self.edge_channels, kernel_size=1, strides=1,
+                           activation=self.activation,
+                           use_bias="True",
+                           name='Conv1D_edges')(h)
+
+        # Concatenate points+edge features                           
+        h = tf.concat([h_points,h_edges],axis=2)
+
+        # Flatten to format for MLP input
+        h=klayers.Flatten(name='Flatten')(h)
+    
+        #Latent dimension and sampling 
+        z_mean = klayers.Dense(self.latent_dim, name = 'z_mean',activation='relu' )(h)
+        z_log_var = klayers.Dense(self.latent_dim, name='z_log_var', activation='relu' )(h)
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        z = z_mean + tf.exp(0.5 * z_log_var) * epsilon
+        encoder = tf.keras.Model(inputs=(in_points,in_edges), outputs=[z, z_mean, z_log_var],name='EdgeConvEncoderVAE')
+        encoder.summary()
+        return encoder
+
+    def build_decoder(self):
+        # Decoder Input
+        in_z   = klayers.Input(shape=(self.latent_dim, ), name='decoder_input')
+        h = klayers.Dense((self.point_channels+self.edge_channels)*self.nodes_n,activation=self.activation)(in_z)
+        h = klayers.Reshape((self.nodes_n,self.point_channels+self.edge_channels),
+                            input_shape=((self.point_channels+self.edge_channels)*self.nodes_n,))(h) 
+        out_feats = klayers.Conv1D(self.feat_sz, kernel_size=1, strides=1,
+                           activation=self.activation,
+                           use_bias="True",
+                           name='Conv1D_out')(h)
+        # Instantiate decoder
+        decoder = tf.keras.Model(inputs=in_z, outputs=out_feats, name='EdgeConvDecoderVAE')
+        decoder.summary()
+        return decoder
+    
+
+    def call(self, inputs):
+        z, z_mean, z_log_var =  self.encoder(inputs)
+        features_out = self.decoder(z) 
+        return features_out, z, z_mean, z_log_var
+
+    
+    def train_step(self, data):
+        (nodes_feats_in, edge_feats_in) , nodes_feats_in = data
+
+        with tf.GradientTape() as tape:
+            features_out, z, z_mean, z_log_var  = self((nodes_feats_in, edge_feats_in))  # Forward pass
+            # Compute the loss value ( Chamfer plus KL)
+            loss_reco = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,features_out))
+            loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
+            loss = loss_reco + self.beta_kl  * loss_latent *(1 if self.beta_kl_warmup==0 else self.beta_kl_warmup )
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Return a dict mapping metric names to current value
+        return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent, 'beta_kl_warmup':self.beta_kl_warmup}
+
+
+    def test_step(self, data):
+        (nodes_feats_in, edge_feats_in) , nodes_feats_in = data
+        features_out, z, z_mean, z_log_var = self((nodes_feats_in, edge_feats_in), training=False)  # Forward pass
+        loss_reco = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,features_out))
+        loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
+        loss = loss_reco + self.beta_kl  * loss_latent *(1 if self.beta_kl_warmup==0 else self.beta_kl_warmup )
+        return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}   
+
+    
+    
     
 class KLWarmupCallback(tf.keras.callbacks.Callback):
     def __init__(self):
@@ -328,9 +434,10 @@ class KLWarmupCallback(tf.keras.callbacks.Callback):
         self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
 
     def on_epoch_begin(self, epoch, logs=None):
-        if self.model.kl_warmup_time!=0 :
+        if self.model.kl_warmup_time!=0 : 
+            #By design the first epoch will have a small fraction of latent loss
             kl_value = ((epoch+1)/self.model.kl_warmup_time) * (epoch < self.model.kl_warmup_time) + 1.0 * (epoch >= self.model.kl_warmup_time)
-        else :
+        else : 
             kl_value=1
         tf.keras.backend.set_value(self.model.beta_kl_warmup, kl_value)
 
