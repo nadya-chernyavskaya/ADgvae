@@ -19,8 +19,8 @@ class GraphAutoencoder(tf.keras.Model):
     
     def build_encoder(self):
         ''' reduce feat_sz to 2 '''
-        inputs_feat = tf.keras.layers.Input(shape=self.input_shape_feat, dtype=tf.float32, name='encoder_input_features')
-        inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
+        inputs_feat = klayers.Input(shape=self.input_shape_feat, dtype=tf.float32, name='encoder_input_features')
+        inputs_adj = klayers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
         x = inputs_feat
         #feat_sz-1 layers needed to reduce to R^1 
         x = layers.GraphConvolution(output_sz=6, activation=self.activation)(x, inputs_adj)
@@ -232,6 +232,96 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}   
 
 
+    
+class EdgeConvAutoEncoder(tf.keras.Model):
+
+    def __init__(self, nodes_n, feat_sz, activation=klayers.LeakyReLU(alpha=0.2), latent_dim=40, **kwargs):
+        super(EdgeConvAutoEncoder, self).__init__(**kwargs)
+        self.nodes_n = nodes_n
+        self.feat_sz = feat_sz
+        self.activation = activation
+        self.latent_dim = latent_dim
+        self.point_channels = 20    
+        self.edge_channels  = 20
+        self.k = 15
+        self.input_shape_points = [self.nodes_n,self.feat_sz]
+        self.input_shape_edges = [self.nodes_n,self.k*self.feat_sz]
+        self.autoencoder = self.build_autoencoder()
+
+    def build_autoencoder(self):
+        in_points = klayers.Input(shape=self.input_shape_points, name="in_points")
+        in_edges = klayers.Input(shape=self.input_shape_edges, name="in_edges")    
+        
+        # Input point features BatchNormalization 
+        h = klayers.BatchNormalization(name='BatchNorm_points')(in_points)
+        # Conv1D with kernel_size=nfeatures to implement a MLP like aggregation of 
+        #   input point features
+        h_points = klayers.Conv1D(self.point_channels, kernel_size=1, strides=1
+                          , activation=self.activation
+                          , use_bias="True"
+                          , name='Conv1D_points')(h) 
+
+
+        # Input edges features BatchNormalization 
+        h = klayers.BatchNormalization(name='BatchNorm_edges')(in_edges)
+        # Conv1D (MLP like aggregation) of input edge features
+        h_edges  = klayers.Conv1D(self.edge_channels, kernel_size=1, strides=1
+                          , activation=self.activation
+                          , use_bias="True"
+                          , name='Conv1D_edges')(h)
+
+        # Concatenate points+edge features                           
+        h = tf.concat([h_points,h_edges],axis=2)
+
+        # Flatten to format for MLP input
+        h=klayers.Flatten(name='Flatten')(h)
+    
+        #Latent dimension
+        hidden = klayers.Dense(self.latent_dim, name = 'latent',activation=self.activation )(h)
+
+        #Decode from latent dimension
+        h = klayers.Dense((self.point_channels+self.edge_channels)*self.nodes_n,activation=self.activation )(hidden)
+        h = klayers.Reshape((self.nodes_n,self.point_channels+self.edge_channels), input_shape=((self.point_channels+self.edge_channels)*self.nodes_n,))(h) 
+        out = klayers.Conv1D(self.feat_sz, kernel_size=1, strides=1
+                         , activation=self.activation
+                          , use_bias="True"
+                          , name='Conv1D_out')(h)
+
+        model = tf.keras.Model(inputs=(in_points,in_edges), outputs=out,name='EdgeConvAE')
+        model.summary() 
+        return model
+    
+
+    def call(self, inputs):
+        return self.autoencoder(inputs)
+
+    def train_step(self, data):
+        (nodes_feats_in, edge_feats_in) , nodes_feats_in = data
+
+        with tf.GradientTape() as tape:
+            nodes_feats_out = self((nodes_feats_in, edge_feats_in))  # Forward pass
+            # Compute the loss value 
+            loss = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,nodes_feats_out))
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
+
+    def test_step(self, data):
+        (nodes_feats_in, edge_feats_in) , nodes_feats_in = data
+        
+        nodes_feats_out = self((nodes_feats_in, edge_feats_in), training=False)  # Forward pass
+        loss = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,nodes_feats_out))
+        
+        return {'loss' : loss}
+    
+    
+    
 class KLWarmupCallback(tf.keras.callbacks.Callback):
     def __init__(self):
         super(KLWarmupCallback, self).__init__()
