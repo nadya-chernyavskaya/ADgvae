@@ -194,8 +194,8 @@ def get_particle_net_lite_ae(input_shapes):
     setting = _DotDict()
     # conv_params: list of tuple in the format (K, (C1, C2, C3))
     setting.conv_params = [
-        (7, (32, 32, 32))#,
-       # (7, (64, 64, 64)),
+        (7, (32, 32, 32)),
+        (7, (64, 64, 64)),
         ]
     # conv_pooling: 'average' or 'max'
     setting.conv_pooling = 'average'
