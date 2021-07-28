@@ -234,7 +234,7 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
     
 class EdgeConvAutoEncoder(tf.keras.Model):
 
-    def __init__(self, nodes_n, feat_sz, activation, latent_dim, **kwargs):
+    def __init__(self, nodes_n, feat_sz, k_neighbors, activation, latent_dim, **kwargs):
         super(EdgeConvAutoEncoder, self).__init__(**kwargs)
         self.nodes_n = nodes_n
         self.feat_sz = feat_sz
@@ -242,7 +242,7 @@ class EdgeConvAutoEncoder(tf.keras.Model):
         self.latent_dim = latent_dim
         self.point_channels = 20    
         self.edge_channels  = 20
-        self.k_neighbors = 15
+        self.k_neighbors = k_neighbors
         self.input_shape_points = [self.nodes_n,self.feat_sz]
         self.input_shape_edges = [self.nodes_n,self.k_neighbors*self.feat_sz]
         self.encoder = self.build_encoder()
@@ -329,12 +329,12 @@ class EdgeConvAutoEncoder(tf.keras.Model):
     
 
 class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
-    def __init__(self, nodes_n, feat_sz, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
+    def __init__(self, nodes_n, feat_sz,k_neighbors, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
         self.beta_kl = beta_kl 
         self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
-        super(EdgeConvVariationalAutoEncoder, self).__init__(nodes_n, feat_sz, activation,latent_dim, **kwargs)
+        super(EdgeConvVariationalAutoEncoder, self).__init__(nodes_n, feat_sz, k_neighbors,activation,latent_dim, **kwargs)
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
 
@@ -342,23 +342,21 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
         in_points = klayers.Input(shape=self.input_shape_points, name="in_points")
         in_edges = klayers.Input(shape=self.input_shape_edges, name="in_edges")    
         
-        # Input point features BatchNormalization 
-        h = klayers.BatchNormalization(name='BatchNorm_points')(in_points)
         # Conv1D with kernel_size=nfeatures to implement a MLP like aggregation of 
         #   input point features
         h_points = klayers.Conv1D(self.point_channels, kernel_size=1, strides=1,
                            activation=self.activation,
                            use_bias="True",
-                           name='Conv1D_points')(h) 
+                           kernel_initializer='glorot_normal',
+                           name='Conv1D_points')(in_points) 
 
 
-        # Input edges features BatchNormalization 
-        h = klayers.BatchNormalization(name='BatchNorm_edges')(in_edges)
         # Conv1D (MLP like aggregation) of input edge features
         h_edges  = klayers.Conv1D(self.edge_channels, kernel_size=1, strides=1,
                            activation=self.activation,
                            use_bias="True",
-                           name='Conv1D_edges')(h)
+                           kernel_initializer='glorot_normal',
+                           name='Conv1D_edges')(in_edges)
 
         # Concatenate points+edge features                           
         h = tf.concat([h_points,h_edges],axis=2)
@@ -386,6 +384,7 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
         out_feats = klayers.Conv1D(self.feat_sz, kernel_size=1, strides=1,
                            activation=self.activation,
                            use_bias="True",
+                           kernel_initializer='glorot_normal',
                            name='Conv1D_out')(h)
         # Instantiate decoder
         decoder = tf.keras.Model(inputs=in_z, outputs=out_feats, name='EdgeConvDecoderVAE')

@@ -4,6 +4,16 @@ import h5py
 import matplotlib.pyplot as plti
 import sklearn.utils as skutil
 
+def log_transform(x):
+	return np.where(x==0,-10,np.log(x))
+
+def transform_min_max(x):
+    return (x-np.min(x))/(np.max(x)-np.min(x))
+
+def transform_mean_std(x):
+    return (x-np.mean(x))/(3*np.std(x))
+
+
 def mask_training_cuts(constituents, features):
     ''' get mask for training cuts requiring a jet-pt > 200'''
     jetPt_cut = 200.
@@ -13,6 +23,9 @@ def mask_training_cuts(constituents, features):
     ''' normalize jet constituents pt to the jet pt'''
     constituents[:,0,:,2] = np.where(features[:, idx_j1Pt,None]!=0, constituents[:,0,:,2]/features[:, idx_j1Pt,None],0.) #pt is 2nd
     constituents[:,1,:,2] = np.where(features[:, idx_j2Pt,None]!=0, constituents[:,1,:,2]/features[:, idx_j2Pt,None],0.) #pt is 2nd
+    ''' log transform pt of constituents'''
+    constituents[:,0,:,2] = log_transform(constituents[:,0,:,2]) 
+    constituents[:,1,:,2] = log_transform(constituents[:,1,:,2]) 
     return mask_j1, mask_j2
 
 def constituents_to_input_samples(constituents, mask_j1, mask_j2): # -> np.ndarray
@@ -31,10 +44,10 @@ def events_to_input_samples(constituents, features):
 def normalize_features(particles):
     idx_eta, idx_phi, idx_pt = range(3)
     # min-max normalize pt
-    particles[:,:,idx_pt] =  (particles[:,:,idx_pt] - np.min(particles[:,:,idx_pt])) / (np.max(particles[:,:,idx_pt])-np.min(particles[:,:,idx_pt]))
+    particles[:,:,idx_pt] = transform_min_max(particles[:,:,idx_pt]) 
     # standard normalize angles
-    particles[:,:,idx_eta] = (particles[:,:,idx_eta] - np.mean(particles[:,:,idx_eta]))/3/np.std(particles[:,:,idx_eta])
-    particles[:,:,idx_phi] = (particles[:,:,idx_phi] - np.mean(particles[:,:,idx_phi]))/3/np.std(particles[:,:,idx_phi])
+    particles[:,:,idx_eta] = transform_mean_std(particles[:,:,idx_eta]) 
+    particles[:,:,idx_phi] = transform_mean_std(particles[:,:,idx_phi]) 
     return particles
 
 
@@ -76,7 +89,7 @@ def prepare_data_constituents(filename,num_instances,start=0,end=-1):
     data = h5py.File(filename, 'r') 
     constituents = data['jetConstituentsList'][start:end,]
     features = data['eventFeatures'][start:end,]
-    constituents = constituents[:,:,0:20,:] #first select some, as they are ordered in pt, and we shuffle later
+    constituents = constituents[:,:,0:10,:] #first select some, as they are ordered in pt, and we shuffle later
     samples = events_to_input_samples(constituents, features)
     # The dataset is N_jets x N_constituents x N_features
     njet     = samples.shape[0]
