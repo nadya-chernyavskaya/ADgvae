@@ -240,8 +240,8 @@ class EdgeConvAutoEncoder(tf.keras.Model):
         self.feat_sz = feat_sz
         self.activation = activation
         self.latent_dim = latent_dim
-        self.point_channels = 20    
-        self.edge_channels  = 20
+        self.point_channels = 10    
+        self.edge_channels  = 10
         self.k_neighbors = k_neighbors
         self.input_shape_points = [self.nodes_n,self.feat_sz]
         self.input_shape_edges = [self.nodes_n,self.k_neighbors*self.feat_sz]
@@ -270,8 +270,9 @@ class EdgeConvAutoEncoder(tf.keras.Model):
                            use_bias="True",
                            name='Conv1D_edges')(h)
 
-        # Concatenate points+edge features                           
-        h = tf.concat([h_points,h_edges],axis=2)
+        # Concatenate points+edge features    
+        #h = h_points+h_edges                        #particle net uses sum
+        h = tf.concat([h_points,h_edges],axis=2) #Andre uses concatenation
 
         # Flatten to format for MLP input
         h=klayers.Flatten(name='Flatten')(h)
