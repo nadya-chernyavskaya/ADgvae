@@ -27,4 +27,16 @@ def threeD_loss_manual(inputs, outputs):
     return np.sum(min_dist_to_inputs,axis=1) + np.sum(min_dist_to_outputs,axis=1)
 
 
+# wrapper for mse loss to pass as reco loss
+@tf.function
+def mse_loss(inputs, outputs):
+    return tf.keras.losses.MeanSquaredError()(inputs_upd, outputs_upd)
+
+
+def mse_loss_manual(inputs, outputs):
+    inputs = inputs.reshape(inputs.shape[0],-1) 
+    outputs = outputs.reshape(outputs.shape[0],-1)
+    reconstruction_loss = np.mean( np.square(outputs-inputs), axis=-1)
+    return np.array(reconstruction_loss)
+
 

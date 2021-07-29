@@ -65,7 +65,7 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         else:
             fts = tf.reduce_mean(x, axis=2)  # (N, P, C')
 
-        # shortcut
+        # shortcut of constituents features
         sc = keras.layers.Conv2D(channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
                                  use_bias=False if with_bn else True, kernel_initializer='glorot_normal', name='%s_sc_conv' % name)(tf.expand_dims(features, axis=2))
         if with_bn:
@@ -73,7 +73,7 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         sc = tf.squeeze(sc, axis=2)
 
         if activation:
-            return keras.layers.Activation(activation, name='%s_sc_act' % name)(sc + fts)  # (N, P, C')
+            return keras.layers.Activation(activation, name='%s_sc_act' % name)(sc + fts)  # (N, P, C') #try with concatenation instead of sum
         else:
             return sc + fts
 
@@ -97,7 +97,7 @@ def _particle_net_base(points, features=None, mask=None, setting=None, name='par
             if mask is not None:
                 pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, fts)
             else : pts=points
-            fts = edge_conv(pts, fts, setting.num_points, K, channels, with_bn=True, activation=LeakyReLU(alpha=0.2),
+            fts = edge_conv(pts, fts, setting.num_points, K, channels, with_bn=True, activation=LeakyReLU(alpha=0.1),
                             pooling=setting.conv_pooling, name='%s_%s%d' % (name, 'EdgeConv', layer_idx))
 
         if mask is not None:
@@ -110,16 +110,16 @@ def _particle_net_base(points, features=None, mask=None, setting=None, name='par
 def _ae_base(pool_layer, setting=None, name='ae'):
      num_channels = setting.conv_params[-1][-1][-1]
      print(num_channels)
-     latent_space = keras.layers.Dense(setting.latent_dim,activation=LeakyReLU(alpha=0.2) )(pool_layer)
-     h = keras.layers.Dense((num_channels*setting.num_points),activation=LeakyReLU(alpha=0.2) )(latent_space)
-     h = keras.layers.Reshape((setting.num_points,num_channels), input_shape=(num_channels*setting.num_points,))(h) 
-   #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
-   #  out = keras.layers.Conv1D(3, kernel_size=1, strides=1,
-   #                           activation=LeakyReLU(alpha=0.2),
-   #                           use_bias="True",
-   #                           name='Conv1D_out')(h)
-     out = tf.squeeze(keras.layers.Conv2D(3, kernel_size=(1, 1), strides=1, data_format='channels_last',
-                                 use_bias=True, kernel_initializer='glorot_normal', name='%s_conv' % name)(tf.expand_dims(h, axis=2)),axis=2)  
+     latent_space = keras.layers.Dense(setting.latent_dim,activation=LeakyReLU(alpha=0.1) )(pool_layer)
+     x = keras.layers.Dense((10*setting.num_points),activation=LeakyReLU(alpha=0.1) )(latent_space)
+     x = keras.layers.Reshape((setting.num_points,10), input_shape=(num_channels*setting.num_points,))(x) 
+     #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
+     x = tf.squeeze(keras.layers.Conv2D(setting.num_features*2, kernel_size=(1, 1), strides=1, data_format='channels_last',
+                                 use_bias=True, activation =LeakyReLU(alpha=0.1), kernel_initializer='glorot_normal',
+                                 name='%s_conv_0' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+     out = tf.squeeze(keras.layers.Conv2D(setting.num_features, kernel_size=(1, 1), strides=1, data_format='channels_last',
+                                 use_bias=True, activation =LeakyReLU(alpha=0.1), kernel_initializer='glorot_normal',
+                                 name='%s_conv_1' % name)(tf.expand_dims(x, axis=2)),axis=2)  
      return out
 
 
@@ -144,13 +144,14 @@ def get_particle_net_lite_ae(input_shapes):
     setting.conv_pooling = 'average'
     # fc_params: list of tuples in the format (C, drop_rate)
     setting.fc_params = None 
-    setting.num_points = input_shapes['points'][0]
-    setting.latent_dim = 100 
+    setting.num_points = input_shapes['points'][0] #num of original consituents
+    setting.num_features = input_shapes['features'][1] #num of original features
+    setting.latent_dim = 10 
 
     points = keras.Input(name='points', shape=input_shapes['points'])
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
     mask = None
     pool_layer = _particle_net_base(points, features, mask, setting, name='ParticleNet')
-    outputs = _ae_base(pool_layer,setting, name='AE')
+    outputs = _ae_base(pool_layer, setting, name='AE')
 
     return keras.Model(inputs=[points, features], outputs=outputs, name='ParticleNetAE')
