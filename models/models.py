@@ -163,10 +163,10 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         '''create flatten layer'''
         x = klayers.Flatten()(x) #flattened to 2 x nodes_n
         '''create dense layer #1 '''
-        x = klayers.Dense(self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(x) #'relu'
+        x = klayers.Dense(self.nodes_n, activation=self.activation)(x) #'relu'
         ''' create dense layer #2 to make latent space params mu and sigma in last compression to feat_sz = 1 '''
-        self.z_mean = klayers.Dense(self.latent_dim, activation=tf.keras.activations.linear)(x)  
-        self.z_log_var = klayers.Dense(self.latent_dim, activation=tf.keras.activations.linear)(x) 
+        self.z_mean = klayers.Dense(self.latent_dim, activation=self.activation)(x) #tf.keras.activations.linear 
+        self.z_log_var = klayers.Dense(self.latent_dim, activation=self.activation)(x) #tf.keras.activations.linear 
         batch = tf.shape(self.z_mean)[0]
         dim = tf.shape(self.z_mean)[1]
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
@@ -182,8 +182,8 @@ class GCNVariationalAutoEncoder(GraphAutoencoder):
         inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='decoder_input_adjacency')
         out = inputs_feat
 
-        out = klayers.Dense(self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(out)     #'relu'
-        out = klayers.Dense(2*self.nodes_n, activation=klayers.LeakyReLU(alpha=0.01))(out)   #'relu'
+        out = klayers.Dense(self.nodes_n, activation=self.activation)(out)     #'relu'
+        out = klayers.Dense(2*self.nodes_n, activation=self.activation)(out)   #'relu'
         ''' reshape to 2 x nodes_n '''
         out = tf.keras.layers.Reshape((self.nodes_n,2), input_shape=(2*self.nodes_n,))(out) 
         ''' reconstruct ''' 

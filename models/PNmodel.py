@@ -104,84 +104,27 @@ def _particle_net_base(points, features=None, mask=None, setting=None, name='par
             fts = tf.multiply(fts, mask)
 
         pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+        return pool
 
-        #return pool
-        print(channels[-1])
-        h = keras.layers.Dense((channels[-1])*setting.num_points,activation=LeakyReLU(alpha=0.2) )(pool)
-        h = keras.layers.Reshape((setting.num_points,channels[-1]), input_shape=(channels[-1]*setting.num_points,))(h) 
-        out = keras.layers.Conv1D(3, kernel_size=1, strides=1,
-                          activation=LeakyReLU(alpha=0.2),
-                          use_bias="True",
-                          name='Conv1D_out')(h)
-        return out
+
+def _ae_base(pool_layer, setting=None, name='ae'):
+     num_channels = setting.conv_params[-1][-1][-1]
+     print(num_channels)
+     latent_space = keras.layers.Dense(setting.latent_dim,activation=LeakyReLU(alpha=0.2) )(pool_layer)
+     h = keras.layers.Dense((num_channels*setting.num_points),activation=LeakyReLU(alpha=0.2) )(latent_space)
+     h = keras.layers.Reshape((setting.num_points,num_channels), input_shape=(num_channels*setting.num_points,))(h) 
+   #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
+   #  out = keras.layers.Conv1D(3, kernel_size=1, strides=1,
+   #                           activation=LeakyReLU(alpha=0.2),
+   #                           use_bias="True",
+   #                           name='Conv1D_out')(h)
+     out = tf.squeeze(keras.layers.Conv2D(3, kernel_size=(1, 1), strides=1, data_format='channels_last',
+                                 use_bias=True, kernel_initializer='glorot_normal', name='%s_conv' % name)(tf.expand_dims(h, axis=2)),axis=2)  
+     return out
 
 
 class _DotDict:
     pass
-
-
-def get_particle_net(num_classes, input_shapes):
-    r"""ParticleNet model from `"ParticleNet: Jet Tagging via Particle Clouds"
-    <https://arxiv.org/abs/1902.08570>`_ paper.
-    Parameters
-    ----------
-    num_classes : int
-        Number of output classes.
-    input_shapes : dict
-        The shapes of each input (`points`, `features`, `mask`).
-    """
-    setting = _DotDict()
-    setting.num_class = num_classes
-    # conv_params: list of tuple in the format (K, (C1, C2, C3))
-    setting.conv_params = [
-        (16, (64, 64, 64)),
-        (16, (128, 128, 128)),
-        (16, (256, 256, 256)),
-        ]
-    # conv_pooling: 'average' or 'max'
-    setting.conv_pooling = 'average'
-    # fc_params: list of tuples in the format (C, drop_rate)
-    setting.fc_params = [(256, 0.1)]
-    setting.num_points = input_shapes['points'][0]
-
-    points = keras.Input(name='points', shape=input_shapes['points'])
-    features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
-    mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
-    outputs = _particle_net_base(points, features, mask, setting, name='ParticleNet')
-
-    return keras.Model(inputs=[points, features, mask], outputs=outputs, name='ParticleNet')
-
-
-def get_particle_net_lite(num_classes, input_shapes):
-    r"""ParticleNet-Lite model from `"ParticleNet: Jet Tagging via Particle Clouds"
-    <https://arxiv.org/abs/1902.08570>`_ paper.
-    Parameters
-    ----------
-    num_classes : int
-        Number of output classes.
-    input_shapes : dict
-        The shapes of each input (`points`, `features`, `mask`).
-    """
-    setting = _DotDict()
-    setting.num_class = num_classes
-    # conv_params: list of tuple in the format (K, (C1, C2, C3))
-    setting.conv_params = [
-        (7, (32, 32, 32)),
-        (7, (64, 64, 64)),
-        ]
-    # conv_pooling: 'average' or 'max'
-    setting.conv_pooling = 'average'
-    # fc_params: list of tuples in the format (C, drop_rate)
-    setting.fc_params = [(128, 0.1)]
-    setting.num_points = input_shapes['points'][0]
-
-    points = keras.Input(name='points', shape=input_shapes['points'])
-    features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
-    mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
-    outputs = _particle_net_base(points, features, mask, setting, name='ParticleNet')
-
-    return keras.Model(inputs=[points, features, mask], outputs=outputs, name='ParticleNet')
-
 
 def get_particle_net_lite_ae(input_shapes):
     r"""ParticleNet-Lite model from `"ParticleNet: Jet Tagging via Particle Clouds"
@@ -202,10 +145,12 @@ def get_particle_net_lite_ae(input_shapes):
     # fc_params: list of tuples in the format (C, drop_rate)
     setting.fc_params = None 
     setting.num_points = input_shapes['points'][0]
+    setting.latent_dim = 100 
 
     points = keras.Input(name='points', shape=input_shapes['points'])
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None
     mask = None
-    outputs = _particle_net_base(points, features, mask, setting, name='ParticleNet')
+    pool_layer = _particle_net_base(points, features, mask, setting, name='ParticleNet')
+    outputs = _ae_base(pool_layer,setting, name='AE')
 
-    return keras.Model(inputs=[points, features], outputs=outputs, name='ParticleNet')
+    return keras.Model(inputs=[points, features], outputs=outputs, name='ParticleNetAE')
