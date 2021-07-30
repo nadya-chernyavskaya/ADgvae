@@ -452,10 +452,33 @@ class PNVAE(tf.keras.Model):
         #mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
         mask = None #TO DO : need to check how to implement that when/if we need it
 
-        inputs =[points, features]
-        pool_layer = layers.ParticleNetBase(setting=self.setting, activation=self.activation, name='ParticleNet')(points, features, mask)
+        ################################
+        #### Trying with particleNetBase layer
+        #inputs =[points, features]
+        #pool_layer = layers.ParticleNetBase(setting=self.setting, activation=self.activation, name='ParticleNet')(points, features)
+        #return pool_layer
+        #######################################
 
-        return pool_layer
+        if mask is not None:
+            mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
+            coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
+
+        fts = tf.squeeze(klayers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
+        for layer_idx, layer_param in enumerate(self.setting.conv_params):
+            K, channels = layer_param
+            if mask is not None:
+                pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, fts)
+            else : pts=points
+            fts = layers.EdgeConvModule(self.setting.num_points, K, channels, with_bn=True, activation=self.activation,
+                            pooling=self.setting.conv_pooling, name='%s_%s%d' % (self.name, 'EdgeConv', layer_idx))(pts, fts)
+
+        if mask is not None:
+            fts = tf.multiply(fts, mask)
+
+        pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+        return pool
+
+
 
     def build_encoder(self):
         input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
@@ -472,7 +495,7 @@ class PNVAE(tf.keras.Model):
 
     def build_decoder(self):
         input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
-        decoder_output = layers.articleNetDecoder(setting=self.setting, name=self.name)(input_layer)
+        decoder_output = layers.ParticleNetDecoder(setting=self.setting, name=self.name)(input_layer)
         return decoder_output
 
 

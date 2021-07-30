@@ -144,6 +144,7 @@ class EdgeConvModule(tf.keras.layers.Layer):
         self.pooling = pooling    
 
     def call(self, points, features):
+
         # distance
         D = funcs.batch_distance_matrix_general(points, points)  # (N, P, P)
         _, indices = tf.nn.top_k(-D, k=self.K + 1)  # (N, P, K+1)
@@ -167,7 +168,7 @@ class EdgeConvModule(tf.keras.layers.Layer):
             fts = tf.reduce_max(x, axis=2)  # (N, P, C')
         else:
             fts = tf.reduce_mean(x, axis=2)  # (N, P, C')
-
+            
         # shortcut of constituents features
         sc = keras.layers.Conv2D(self.channels[-1], kernel_size=(1, 1), strides=1, data_format='channels_last',
                                  use_bias=False if self.with_bn else True, kernel_initializer='glorot_normal', name='%s_sc_conv' % self.name)(tf.expand_dims(features, axis=2))
@@ -195,7 +196,8 @@ class ParticleNetBase(tf.keras.layers.Layer):
         self.setting = setting    
         self.activation = activation    
 
-    def call(self, points, features=None, mask=None):
+    def call(self, points, features): #,mask = None : TO DO : when/if we need mask, figure out how to include it
+        mask = None
         if features is None:
             features = points
 
@@ -203,6 +205,7 @@ class ParticleNetBase(tf.keras.layers.Layer):
             mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
             coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
 
+        print(points,features)
         fts = tf.squeeze(keras.layers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
         for layer_idx, layer_param in enumerate(self.setting.conv_params):
             K, channels = layer_param
@@ -285,13 +288,13 @@ class ParticleNetDecoder(tf.keras.layers.Layer):
         #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
         x = tf.squeeze(keras.layers.Conv2D(self.setting.num_features*3, kernel_size=(1, 1), strides=1, data_format='channels_last',
                                     use_bias=True, activation =self.activation, kernel_initializer='glorot_normal',
-                                    name='%s_conv_0' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+                                    name='%s_conv_0' % self.name)(tf.expand_dims(x, axis=2)),axis=2)  
         x = keras.layers.BatchNormalization(name='%s_bn_2' % (self.name))(x)
-        x = tf.squeeze(keras.layers.Conv2D(setting.num_features*2, kernel_size=(1, 1), strides=1, data_format='channels_last',
+        x = tf.squeeze(keras.layers.Conv2D(self.setting.num_features*2, kernel_size=(1, 1), strides=1, data_format='channels_last',
                                     use_bias=True, activation =self.activation, kernel_initializer='glorot_normal',
-                                    name='%s_conv_2' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+                                    name='%s_conv_2' % self.name)(tf.expand_dims(x, axis=2)),axis=2)  
         x = keras.layers.BatchNormalization(name='%s_bn_3' % (self.name))(x)
-        out = tf.squeeze(keras.layers.Conv2D(setting.num_features, kernel_size=(1, 1), strides=1, data_format='channels_last',
+        out = tf.squeeze(keras.layers.Conv2D(self.setting.num_features, kernel_size=(1, 1), strides=1, data_format='channels_last',
                                     use_bias=True, activation =self.activation, kernel_initializer='glorot_normal',
                                     name='%s_conv_out' % self.name)(tf.expand_dims(x, axis=2)),axis=2) 
         return out
