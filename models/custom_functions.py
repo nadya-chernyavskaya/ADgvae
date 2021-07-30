@@ -4,7 +4,7 @@ import numpy as np
 
 # A shape is (N, P_A, C), B shape is (N, P_B, C)
 # D shape is (N, P_A, P_B)
-@tf.function
+#@tf.function
 def batch_distance_matrix_general(A, B):
     with tf.name_scope('dmat'):
         r_A = tf.reduce_sum(A * A, axis=2, keepdims=True)
@@ -13,7 +13,7 @@ def batch_distance_matrix_general(A, B):
         D = r_A - 2 * m + tf.transpose(r_B, perm=(0, 2, 1))
         return D
 
-@tf.function
+#@tf.function
 def knn(num_points, k, topk_indices, features):
     # topk_indices: (N, P, K)
     # features: (N, P, C)
