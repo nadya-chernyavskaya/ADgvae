@@ -452,12 +452,6 @@ class PNVAE(tf.keras.Model):
         #mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
         mask = None #TO DO : need to check how to implement that when/if we need it
 
-        ################################
-        #### Trying with particleNetBase layer
-        #inputs =[points, features]
-        #pool_layer = layers.ParticleNetBase(setting=self.setting, activation=self.activation, name='ParticleNet')(points, features)
-        #return pool_layer
-        #######################################
 
         if mask is not None:
             mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
@@ -476,27 +470,26 @@ class PNVAE(tf.keras.Model):
             fts = tf.multiply(fts, mask)
 
         pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
-        return pool
+
+        particle_net_base = tf.keras.Model(inputs=(points,features), outputs=pool,name='ParticleNetBase')
+        particle_net_base.summary()
+        return particle_net_base 
 
 
 
     def build_encoder(self):
         input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
-
-        if 'vae'.lower() in self.setting.ae_type :
-            z, z_mean_, z_log_var = layers.Sampling(setting=self.setting, name=self.name)(input_layer)
-            encoder_output = [z, z_mean_, z_log_var]
-        else :  
-            latent_space = klayers.Dense(self.setting.latent_dim,activation=self.activation )(input_layer)
-            encoder_output = [latent_space]
-
-        return encoder_output
-
+        encoder_output = layers.ParticleNetEncoder(setting=self.setting, name=self.name)(input_layer)
+        encoder = tf.keras.Model(inputs=input_layer, outputs=encoder_output,name='Encoder')
+        encoder.summary()
+        return encoder 
 
     def build_decoder(self):
         input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
         decoder_output = layers.ParticleNetDecoder(setting=self.setting, name=self.name)(input_layer)
-        return decoder_output
+        decoder = tf.keras.Model(inputs=input_layer, outputs=decoder_output,name='Decoder')
+        decoder.summary()
+        return decoder 
 
 
     def call(self, inputs):
@@ -510,8 +503,13 @@ class PNVAE(tf.keras.Model):
         (coord_in, feats_in) , feats_in = data
 
         with tf.GradientTape() as tape:
-            feats_out = self((coord_in, feats_in))  # Forward pass
+            encoder_output, decoder_output  = self((coord_in, feats_in))  # Forward pass
             # Compute the loss value 
+            #TO DO : write loss for VAE/AE
+            if 'vae'.lower() in self.setting.ae_type :
+                z, z_mean_, z_log_var = encoder_output
+            else : z = encoder_output
+            feats_out = decoder_output
             loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
 
         # Compute gradients
@@ -525,10 +523,14 @@ class PNVAE(tf.keras.Model):
 
     def test_step(self, data):
         (coord_in, feats_in) , feats_in = data
-        
-        feats_out = self((coord_in, feats_in), training=False)  # Forward pass
+        encoder_output, decoder_output = self((coord_in, feats_in), training=False)  # Forward pass
+        if 'vae'.lower() in self.setting.ae_type :
+            z, z_mean_, z_log_var = encoder_output
+        else : z = encoder_output
+        feats_out = decoder_output
+        #TO DO : write loss for VAE/AE
         loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
-        
+    
         return {'loss' : loss}
     
     

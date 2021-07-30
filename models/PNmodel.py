@@ -192,12 +192,12 @@ def get_particle_net_lite_ae(input_shapes, ae_info):
     #outputs = _v_ae_base(pool_layer, setting,activation=klayers.LeakyReLU(alpha=0.1), name=setting.ae_type)(pool_layer)
     model = keras.Model(inputs=inputs, outputs=decoder, name='ParticleNet'+setting.ae_type)
 
-    beta = 1.0
-    def local_loss(inputs, outputs):
-        loss = losses.threeD_loss(inputs, outputs) + beta*losses.kl_loss(encoder[1],encoder[2])
-        return loss
+   # beta = 1.0
+   # def local_loss(inputs, outputs):
+   #     loss = losses.threeD_loss(inputs, outputs) + beta*losses.kl_loss(encoder[1],encoder[2])
+   #     return loss
 
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), loss = local_loss) # losses.threeD_loss)#
+  #  model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), loss = local_loss) # losses.threeD_loss)#
     return model
 
     
