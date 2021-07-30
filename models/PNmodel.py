@@ -73,9 +73,11 @@ def edge_conv(points, features, num_points, K, channels, with_bn=True, activatio
         sc = tf.squeeze(sc, axis=2)
 
         if activation:
+       #     return keras.layers.Activation(activation, name='%s_sc_act' % name)(fts)  # (N, P, C') #try with concatenation instead of sum
             return keras.layers.Activation(activation, name='%s_sc_act' % name)(sc + fts)  # (N, P, C') #try with concatenation instead of sum
         else:
             return sc + fts
+       #     return fts #this way there is no shortcut
 
 
 def _particle_net_base(points, features=None, mask=None, setting=None, name='particle_net'):
@@ -111,15 +113,21 @@ def _ae_base(pool_layer, setting=None, name='ae'):
      num_channels = setting.conv_params[-1][-1][-1]
      print(num_channels)
      latent_space = keras.layers.Dense(setting.latent_dim,activation=LeakyReLU(alpha=0.1) )(pool_layer)
-     x = keras.layers.Dense((10*setting.num_points),activation=LeakyReLU(alpha=0.1) )(latent_space)
-     x = keras.layers.Reshape((setting.num_points,10), input_shape=(num_channels*setting.num_points,))(x) 
+     x = keras.layers.Dense((25*setting.num_points),activation=LeakyReLU(alpha=0.1) )(latent_space)
+     x = keras.layers.BatchNormalization(name='%s_bn_1' % (name))(x)
+     x = keras.layers.Reshape((setting.num_points,25), input_shape=(num_channels*setting.num_points,))(x) 
      #1D and 2D  Conv layers with kernel and stride side of 1 are identical operations, but for 2D first need to expand then to squeeze
-     x = tf.squeeze(keras.layers.Conv2D(setting.num_features*2, kernel_size=(1, 1), strides=1, data_format='channels_last',
+     x = tf.squeeze(keras.layers.Conv2D(setting.num_features*3, kernel_size=(1, 1), strides=1, data_format='channels_last',
                                  use_bias=True, activation =LeakyReLU(alpha=0.1), kernel_initializer='glorot_normal',
                                  name='%s_conv_0' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+     x = keras.layers.BatchNormalization(name='%s_bn_2' % (name))(x)
+     x = tf.squeeze(keras.layers.Conv2D(setting.num_features*2, kernel_size=(1, 1), strides=1, data_format='channels_last',
+                                 use_bias=True, activation =LeakyReLU(alpha=0.1), kernel_initializer='glorot_normal',
+                                 name='%s_conv_2' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+     x = keras.layers.BatchNormalization(name='%s_bn_3' % (name))(x)
      out = tf.squeeze(keras.layers.Conv2D(setting.num_features, kernel_size=(1, 1), strides=1, data_format='channels_last',
                                  use_bias=True, activation =LeakyReLU(alpha=0.1), kernel_initializer='glorot_normal',
-                                 name='%s_conv_1' % name)(tf.expand_dims(x, axis=2)),axis=2)  
+                                 name='%s_conv_out' % name)(tf.expand_dims(x, axis=2)),axis=2)  
      return out
 
 
@@ -146,7 +154,7 @@ def get_particle_net_lite_ae(input_shapes):
     setting.fc_params = None 
     setting.num_points = input_shapes['points'][0] #num of original consituents
     setting.num_features = input_shapes['features'][1] #num of original features
-    setting.latent_dim = 10 
+    setting.latent_dim = 7 
 
     points = keras.Input(name='points', shape=input_shapes['points'])
     features = keras.Input(name='features', shape=input_shapes['features']) if 'features' in input_shapes else None

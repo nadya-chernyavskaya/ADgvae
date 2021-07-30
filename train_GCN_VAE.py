@@ -23,9 +23,9 @@ params = Parameters(model='PN_AE',
                     latent_dim=30, 
                     beta_kl=50, 
                     kl_warmup_time=0, 
-                    epochs=20, 
-                    train_total_n=int(1*10e5), 
-                    valid_total_n=int(5*10e3), 
+                    epochs=100, 
+                    train_total_n=int(5*10e5), 
+                    valid_total_n=int(5*10e4), 
                     batch_n=256, 
                     activation=tf.keras.layers.LeakyReLU(alpha=0.3),
                     learning_rate=0.001)
@@ -63,8 +63,8 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
     mode='min',
     save_best_only=True)
 
-callbacks = [tf.keras.callbacks.ReduceLROnPlateau(factor=0.1, patience=3, verbose=2),
-            tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5, verbose=2),
+callbacks = [tf.keras.callbacks.ReduceLROnPlateau(factor=0.1,min_delta=0.0005, patience=5, verbose=2),
+            tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=2),
           #  models.KLWarmupCallback(), #only for VAE
             model_checkpoint_callback] 
 
@@ -89,8 +89,8 @@ pnae.summary()
 pnae.compile(optimizer=optimizer, loss=losses.threeD_loss)
 history = pnae.fit((particles_bg[:,:,0:2], particles_bg) , particles_bg,
                     validation_data = ((particles_bg_valid[:,:,0:2], particles_bg_valid) , particles_bg_valid),
-                    epochs=10, 
-                    batch_size=128, 
+                    epochs=params.epochs, 
+                    batch_size=batch_size, 
                     verbose=1,
                     callbacks=callbacks) 
 pnae.save('output_model_saved_{}_{}'.format(params.model,timestamp))
