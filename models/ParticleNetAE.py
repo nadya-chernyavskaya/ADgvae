@@ -175,7 +175,10 @@ class PNVAE(tf.keras.Model):
    def call(self, inputs):
         pool_layer = self.particlenet(inputs)
         encoder_output = self.encoder(pool_layer)
-        decoder_output = self.decoder(encoder_output) #has to be changed for VAE
+       # if 'vae'.lower() in self.setting.ae_type :
+       #     z, z_mean_, z_log_var = encoder_output
+       # else : z = encoder_output
+        decoder_output = self.decoder(encoder_output )#z) #has to be changed for VAE
        # encoder_output = self.encoder(pool_layer)
        # decoder_output = self.decoder(encoder_output[0])
         return encoder_output, decoder_output
