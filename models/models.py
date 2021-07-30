@@ -3,6 +3,8 @@ import tensorflow.keras.layers as klayers
 import models.losses as losses
 import models.layers as layers
 from keras import backend as K
+import models.PNmodel as pn
+
 
 class GraphAutoencoder(tf.keras.Model):
 
@@ -424,6 +426,85 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
         loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
         loss = loss_reco + self.beta_kl  * loss_latent *(1 if self.beta_kl_warmup==0 else self.beta_kl_warmup )
         return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}   
+
+
+
+class PNVAE(tf.keras.Model):
+
+    def __init__(self,input_shapes,mask,setting, **kwargs):
+        super(PNVAE, self).__init__(**kwargs)
+        self.input_shapes = input_shapes
+        self.setting = setting
+        self.latent_dim = setting.latent_dim
+        self.kl_warmup_time = setting.kl_warmup_time
+        self.beta_kl = setting.beta_kl 
+        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
+        self.particlenet = self.build_particlenet()
+        self.encoder = self.build_encoder()
+        self.decoder = self.build_decoder()
+
+
+    def build_particlenet(self):
+        points = klayers.Input(name='points', shape=self.input_shapes['points'])
+        features = tf.klayers.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
+        mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
+
+        inputs =[points, features]
+        pool_layer = layers.ParticleNetBase(setting=self.setting, activation=self.activation, name='ParticleNet')(points, features, mask)
+
+        return pool_layer
+
+    def build_encoder(self):
+        input_pn   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
+
+        if 'vae'.lower() in self.setting.ae_type :
+            z, z_mean_, z_log_var = _sampling(input_pn, setting=self.setting, name=self.name)
+            encoder_output = [z, z_mean_, z_log_var]
+        else :  
+            latent_space = klayers.Dense(self.setting.latent_dim,activation=self.activation )(input_pn)
+            encoder_output = [latent_space]
+
+        return encoder_output
+
+
+
+    def call(self, inputs):
+        points = tf.keras.Input(name='points', shape=self.input_shapes['points'])
+        features = tf.keras.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
+        inputs =[points, features]
+        mask = None
+        pool_layer = pn._particle_net_base(points, features, mask, self.setting, activation=klayers.LeakyReLU(alpha=0.1), name='ParticleNet')
+        encoder = pn._encoder(pool_layer, setting=self.setting,activation=klayers.LeakyReLU(alpha=0.1), name='encoder')
+        decoder = pn._decoder(encoder[0],setting=self.setting,activation=klayers.LeakyReLU(alpha=0.1), name='decoder')
+        return tf.keras.Model(inputs=inputs, outputs=decoder, name='ParticleNet'+self.setting.ae_type)
+
+
+    def train_step(self, data):
+        (coord_in, feats_in) , feats_in = data
+
+        with tf.GradientTape() as tape:
+            feats_out = self((coord_in, feats_in))  # Forward pass
+            # Compute the loss value 
+            loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
+
+    def test_step(self, data):
+        (coord_in, feats_in) , feats_in = data
+        
+        feats_out = self((coord_in, feats_in), training=False)  # Forward pass
+        loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+        
+        return {'loss' : loss}
+    
+    
 
     
     
