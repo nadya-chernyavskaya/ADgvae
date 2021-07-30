@@ -436,9 +436,10 @@ class PNVAE(tf.keras.Model):
         self.input_shapes = input_shapes
         self.setting = setting
         self.latent_dim = setting.latent_dim
-        self.kl_warmup_time = setting.kl_warmup_time
-        self.beta_kl = setting.beta_kl 
-        self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
+        self.activation =klayers.LeakyReLU(alpha=0.1) #TO DO : pass activation
+      #  self.kl_warmup_time = setting.kl_warmup_time
+      #  self.beta_kl = setting.beta_kl 
+      #  self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
         self.particlenet = self.build_particlenet()
         self.encoder = self.build_encoder()
         self.decoder = self.build_decoder()
@@ -446,8 +447,10 @@ class PNVAE(tf.keras.Model):
 
     def build_particlenet(self):
         points = klayers.Input(name='points', shape=self.input_shapes['points'])
-        features = tf.klayers.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
-        mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
+        features = klayers.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
+
+        #mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
+        mask = None #TO DO : need to check how to implement that when/if we need it
 
         inputs =[points, features]
         pool_layer = layers.ParticleNetBase(setting=self.setting, activation=self.activation, name='ParticleNet')(points, features, mask)
@@ -455,28 +458,29 @@ class PNVAE(tf.keras.Model):
         return pool_layer
 
     def build_encoder(self):
-        input_pn   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
+        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
 
         if 'vae'.lower() in self.setting.ae_type :
-            z, z_mean_, z_log_var = _sampling(input_pn, setting=self.setting, name=self.name)
+            z, z_mean_, z_log_var = layers.Sampling(setting=self.setting, name=self.name)(input_layer)
             encoder_output = [z, z_mean_, z_log_var]
         else :  
-            latent_space = klayers.Dense(self.setting.latent_dim,activation=self.activation )(input_pn)
+            latent_space = klayers.Dense(self.setting.latent_dim,activation=self.activation )(input_layer)
             encoder_output = [latent_space]
 
         return encoder_output
 
 
+    def build_decoder(self):
+        input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
+        decoder_output = layers.articleNetDecoder(setting=self.setting, name=self.name)(input_layer)
+        return decoder_output
+
 
     def call(self, inputs):
-        points = tf.keras.Input(name='points', shape=self.input_shapes['points'])
-        features = tf.keras.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
-        inputs =[points, features]
-        mask = None
-        pool_layer = pn._particle_net_base(points, features, mask, self.setting, activation=klayers.LeakyReLU(alpha=0.1), name='ParticleNet')
-        encoder = pn._encoder(pool_layer, setting=self.setting,activation=klayers.LeakyReLU(alpha=0.1), name='encoder')
-        decoder = pn._decoder(encoder[0],setting=self.setting,activation=klayers.LeakyReLU(alpha=0.1), name='decoder')
-        return tf.keras.Model(inputs=inputs, outputs=decoder, name='ParticleNet'+self.setting.ae_type)
+        pool_layer = self.particlenet(inputs)
+        encoder_output = self.encoder(pool_layer)
+        decoder_output = self.decoder(encoder_output[0])
+        return encoder_output, decoder_output
 
 
     def train_step(self, data):
