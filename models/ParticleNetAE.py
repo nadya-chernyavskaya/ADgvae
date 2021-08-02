@@ -10,9 +10,8 @@ import models.custom_functions as funcs
 
 class PNVAE(tf.keras.Model):
 
-   def __init__(self,input_shapes,mask,setting, **kwargs):
+   def __init__(self,setting, **kwargs):
       super(PNVAE, self).__init__(**kwargs)
-      self.input_shapes = input_shapes
       self.setting = setting
       self.latent_dim = setting.latent_dim
       self.activation = setting.activation
@@ -79,10 +78,10 @@ class PNVAE(tf.keras.Model):
    def build_particlenet(self):
         with tf.name_scope('ParticleNetBase'):
 
-           points = klayers.Input(name='points', shape=self.input_shapes['points'])
-           features = klayers.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
+           points = klayers.Input(name='points', shape=self.setting.input_shapes['points'])
+           features = klayers.Input(name='features', shape=self.setting.input_shapes['features']) if 'features' in self.setting.input_shapes else None
 
-           #mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
+           #mask = keras.Input(name='mask', shape=self.setting.input_shapes['mask']) if 'mask' in self.setting.input_shapes else None
            mask = None #TO DO : need to check how to implement that when/if we need it
 
            if mask is not None:
