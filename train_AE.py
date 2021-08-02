@@ -19,8 +19,8 @@ import utils.preprocessing as prepr
 # ********************************************************
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
-params = Parameters(model='PN_VAE',
-                    latent_dim=30, 
+params = Parameters(model='PN_AE',
+                    latent_dim=10, 
                     beta_kl=10, 
                     kl_warmup_time=3, 
                     epochs=100, 
@@ -66,7 +66,7 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 
 callbacks = [tf.keras.callbacks.ReduceLROnPlateau(factor=0.1,min_delta=0.0005, patience=5, verbose=2),
             tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=2),
-            models.KLWarmupCallback(), #only for VAE
+          #  models.KLWarmupCallback(), #only for VAE
             model_checkpoint_callback] 
 
 
@@ -97,13 +97,12 @@ setting.conv_linking = 'concat' #concat or sum
 setting.num_points = nodes_n #num of original consituents
 setting.num_features = feat_sz #num of original features
 setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
-setting.latent_dim = params.latent_dim
-setting.ae_type = 'vae'  #ae or vae 
-setting.beta_kl = params.beta_kl
+setting.latent_dim = params.latent_dimsetting.ae_type = 'vae'  #ae or vae 
+setting.ae_type = 'ae'  #ae or vae 
 setting.kl_warmup_time = params.kl_warmup_time
 setting.activation = params.activation
 
-model = pnae.PNVAE(setting=setting,name='PN_VAE_')
+model = pnae.PNVAE(setting=setting,name='PN_AE_')
 model.compile(optimizer=optimizer)
 #model.summary()
 
