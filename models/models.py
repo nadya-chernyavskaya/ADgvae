@@ -332,7 +332,7 @@ class EdgeConvAutoEncoder(tf.keras.Model):
     
 
 class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
-    #TO DO : not yet workingm, needs to be debugged. But PN VAE is much more powerful and flexible 
+    #TO DO : not yet working, needs to be debugged. But PN VAE is much more powerful and flexible 
     def __init__(self, nodes_n, feat_sz,k_neighbors, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
@@ -430,114 +430,6 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
 
 
 
-class PNVAE(tf.keras.Model):
-
-    def __init__(self,input_shapes,mask,setting, **kwargs):
-        super(PNVAE, self).__init__(**kwargs)
-        self.input_shapes = input_shapes
-        self.setting = setting
-        self.latent_dim = setting.latent_dim
-        self.activation =klayers.LeakyReLU(alpha=0.1) #TO DO : pass activation
-      #  self.kl_warmup_time = setting.kl_warmup_time
-      #  self.beta_kl = setting.beta_kl 
-      #  self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
-        self.particlenet = self.build_particlenet()
-        self.encoder = self.build_encoder()
-        self.decoder = self.build_decoder()
-
-
-    def build_particlenet(self):
-        points = klayers.Input(name='points', shape=self.input_shapes['points'])
-        features = klayers.Input(name='features', shape=self.input_shapes['features']) if 'features' in self.input_shapes else None
-
-        #mask = keras.Input(name='mask', shape=input_shapes['mask']) if 'mask' in input_shapes else None
-        mask = None #TO DO : need to check how to implement that when/if we need it
-
-
-        if mask is not None:
-            mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
-            coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
-
-        fts = tf.squeeze(klayers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
-        for layer_idx, layer_param in enumerate(self.setting.conv_params):
-            K, channels = layer_param
-            if mask is not None:
-                pts = tf.add(coord_shift, points) if layer_idx == 0 else tf.add(coord_shift, fts)
-            else : pts=points
-            fts = layers.EdgeConvModule(self.setting.num_points, K, channels, with_bn=True, activation=self.activation,
-                            pooling=self.setting.conv_pooling, name='%s_%s%d' % (self.name, 'EdgeConv', layer_idx))(pts, fts)
-
-        if mask is not None:
-            fts = tf.multiply(fts, mask)
-
-        pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
-
-        particle_net_base = tf.keras.Model(inputs=(points,features), outputs=pool,name='ParticleNetBase')
-        particle_net_base.summary()
-        return particle_net_base 
-
-
-
-    def build_encoder(self):
-        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
-        encoder_output = layers.ParticleNetEncoder(setting=self.setting, name=self.name)(input_layer)
-        encoder = tf.keras.Model(inputs=input_layer, outputs=encoder_output,name='Encoder')
-        encoder.summary()
-        return encoder 
-
-    def build_decoder(self):
-        input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
-        decoder_output = layers.ParticleNetDecoder(setting=self.setting, name=self.name)(input_layer)
-        decoder = tf.keras.Model(inputs=input_layer, outputs=decoder_output,name='Decoder')
-        decoder.summary()
-        return decoder 
-
-
-    def call(self, inputs):
-        pool_layer = self.particlenet(inputs)
-        encoder_output = self.encoder(pool_layer)
-        decoder_output = self.decoder(encoder_output[0])
-        return encoder_output, decoder_output
-
-
-    def train_step(self, data):
-        (coord_in, feats_in) , feats_in = data
-
-        with tf.GradientTape() as tape:
-            encoder_output, decoder_output  = self((coord_in, feats_in))  # Forward pass
-            # Compute the loss value 
-            #TO DO : write loss for VAE/AE
-            if 'vae'.lower() in self.setting.ae_type :
-                z, z_mean_, z_log_var = encoder_output
-            else : z = encoder_output
-            feats_out = decoder_output
-            loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
-
-        # Compute gradients
-        trainable_vars = self.trainable_variables
-        gradients = tape.gradient(loss, trainable_vars)
-        # Update weights
-        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-        # Return a dict mapping metric names to current value
-        return {m.name: m.result() for m in self.metrics}
-
-
-    def test_step(self, data):
-        (coord_in, feats_in) , feats_in = data
-        encoder_output, decoder_output = self((coord_in, feats_in), training=False)  # Forward pass
-        if 'vae'.lower() in self.setting.ae_type :
-            z, z_mean_, z_log_var = encoder_output
-        else : z = encoder_output
-        feats_out = decoder_output
-        #TO DO : write loss for VAE/AE
-        loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
-    
-        return {'loss' : loss}
-    
-    
-
-    
-    
     
 class KLWarmupCallback(tf.keras.callbacks.Callback):
     def __init__(self):
