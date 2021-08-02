@@ -10,7 +10,7 @@ print('tensorflow version: ', tf.__version__)
 import setGPU
 
 import models.models as models
-import models.PNmodel as pn
+import models.ParticleNetAE as pnae
 import models.losses as losses
 import utils.preprocessing as prepr
 
@@ -19,31 +19,32 @@ import utils.preprocessing as prepr
 # ********************************************************
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
-params = Parameters(model='PN_AE',
-                    latent_dim=30, 
-                    beta_kl=50, 
-                    kl_warmup_time=0, 
+params = Parameters(model='PN_VAE',
+                    latent_dim=10, 
+                    beta_kl=10, 
+                    kl_warmup_time=5, 
                     epochs=100, 
-                    train_total_n=int(5*10e5), 
-                    valid_total_n=int(5*10e4), 
+                    train_total_n=int(1*10e5), 
+                    valid_total_n=int(1*10e4), 
                     batch_n=256, 
-                    activation=tf.keras.layers.LeakyReLU(alpha=0.3),
+                    activation=tf.keras.layers.LeakyReLU(alpha=0.1),
                     learning_rate=0.001)
 
 # ********************************************************
 #       prepare training and validation data
 # ********************************************************
 
-TRAIN_PATH = '/eos/project/d/dshep/TOPCLASS/DijetAnomaly/VAE_data/events/qcd_sqrtshatTeV_13TeV_PU40_NEW_sideband_parts/'
-filename_bg = TRAIN_PATH + 'qcd_sqrtshatTeV_13TeV_PU40_NEW_sideband_000.h5'
+DATA_PATH = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/'
+filename_bg = DATA_PATH + 'QCD_training_data_02_08_2021.h5'
+inFile = h5py.File(filename_bg, 'r')
+#particles_bg = inFile['particle_bg'][()]
+#particles_bg_valid = inFile['particle_bg_valid'][()]
+particles_bg = inFile['particle_bg'][0:params.train_total_n]
+particles_bg_valid = inFile['particle_bg_valid'][0:params.valid_total_n]
+print('Training/validation on {}/{} samples'.format(particles_bg.shape[0],particles_bg_valid.shape[0]))
+nodes_n = particles_bg.shape[1]
+feat_sz = particles_bg.shape[2]
 batch_size = params.batch_n
-train_set_size = int((params.train_total_n//batch_size) * batch_size)
-nodes_n, feat_sz, particles_bg, A_bg, A_tilde_bg = prepr.prepare_data(filename_bg,train_set_size,0,train_set_size+1)
-
-VALID_PATH = '/eos/project/d/dshep/TOPCLASS/DijetAnomaly/VAE_data/events/qcd_sqrtshatTeV_13TeV_PU40_NEW_EXT_sideband_parts/'
-filename_bg_valid = VALID_PATH + 'qcd_sqrtshatTeV_13TeV_PU40_NEW_EXT_sideband_000.h5'
-valid_set_size = int((params.valid_total_n//batch_size) * batch_size)
-_,_, particles_bg_valid, A_bg_valid, A_tilde_bg_valid = prepr.prepare_data(filename_bg_valid,valid_set_size,0,valid_set_size+1)
 
 # *******************************************************
 #                       training options
@@ -65,7 +66,7 @@ model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
 
 callbacks = [tf.keras.callbacks.ReduceLROnPlateau(factor=0.1,min_delta=0.0005, patience=5, verbose=2),
             tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=2),
-          #  models.KLWarmupCallback(), #only for VAE
+            models.KLWarmupCallback(), #only for VAE
             model_checkpoint_callback] 
 
 
@@ -80,19 +81,37 @@ callbacks = [tf.keras.callbacks.ReduceLROnPlateau(factor=0.1,min_delta=0.0005, p
 #gcnvae.save('output_model_saved_GCN_VAE_{}'.format(timestamp))
 
 #Particle Net
-input_shapes = {}
-input_shapes['points'] =  [nodes_n,feat_sz-1] #using only coordinates eta phi
-input_shapes['features'] = [nodes_n,feat_sz]
-input_shapes['mask'] = None
-pnae = pn.get_particle_net_lite_ae(input_shapes)
-pnae.summary()
-pnae.compile(optimizer=optimizer, loss=losses.threeD_loss)
-history = pnae.fit((particles_bg[:,:,0:2], particles_bg) , particles_bg,
+class _DotDict:
+    pass
+
+setting = _DotDict()
+ # conv_params: list of tuple in the format (K, (C1, C2, C3))
+setting.conv_params = [
+        (7, (32, 32, 32)),
+        (7, (64, 64, 64)),
+        ]
+setting.conv_params_decoder = [64,32,6]
+# conv_pooling: 'average' or 'max'
+setting.conv_pooling = 'average'
+setting.num_points = nodes_n #num of original consituents
+setting.num_features = feat_sz #num of original features
+setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
+setting.latent_dim = params.latent_dim
+setting.ae_type = 'vae'  #ae or vae 
+setting.beta_kl = params.beta_kl
+setting.kl_warmup_time = params.kl_warmup_time
+setting.activation = params.activation 
+
+model = pnae.PNVAE(setting=setting,name='PN_VAE_')
+model.compile(optimizer=optimizer)
+#model.summary()
+
+history = model.fit((particles_bg[:,:,0:2], particles_bg) , particles_bg,
                     validation_data = ((particles_bg_valid[:,:,0:2], particles_bg_valid) , particles_bg_valid),
                     epochs=params.epochs, 
                     batch_size=batch_size, 
                     verbose=1,
                     callbacks=callbacks) 
-pnae.save('output_model_saved_{}_{}'.format(params.model,timestamp))
+model.save('output_model_saved_{}_{}'.format(params.model,timestamp))
 
 
