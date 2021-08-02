@@ -22,6 +22,7 @@ class PNVAE(tf.keras.Model):
       self.particlenet = self.build_particlenet()
     #  self.encoder = self.build_encoder()
     #  self.decoder = self.build_decoder()
+      self.sampling = self._sampling()
       self.encoder = self._encoder()
       self.decoder = self._decoder()
 
@@ -119,18 +120,28 @@ class PNVAE(tf.keras.Model):
            particle_net_base.summary()
            return particle_net_base 
 
+   def _sampling(self):
+        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='sampling_input')
+        z_mean = keras.layers.Dense(self.setting.latent_dim, name = 'z_mean', activation=self.activation )(input_layer)
+        z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation )(input_layer)
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        z = z_mean + tf.exp(0.5 * z_log_var) * epsilon
+        sampling_model = tf.keras.Model(inputs=(input_layer), outputs=[z,z_mean,z_log_var],name='SamplingLayer')
+        return sampling_model  
+
    def _encoder(self):
-       # if 'vae'.lower() in self.setting.ae_type :
-       #     z, z_mean_, z_log_var = _sampling(pool_layer, setting=self.setting, name=name)
-       #     encoder_output = [z, z_mean_, z_log_var]
-        #else :  
         input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
-        if 1>0 :  
+        if 'vae'.lower() in self.setting.ae_type :
+            encoder_output = self.sampling(input_layer)
+            encoder_model = tf.keras.Model(inputs=(input_layer), outputs=encoder_output,name='Encoder')
+        else :  
             latent_space = keras.layers.Dense(self.setting.latent_dim,activation=self.activation )(input_layer)
             encoder_output = [latent_space]
-        encoder = tf.keras.Model(inputs=input_layer, outputs=encoder_output,name='Encoder')
-        encoder.summary()
-        return encoder 
+            encoder_model = tf.keras.Model(inputs=(input_layer), outputs=encoder_output,name='Encoder')
+        encoder_model.summary() 
+        return encoder_model
 
 
    def _decoder(self):
@@ -175,12 +186,10 @@ class PNVAE(tf.keras.Model):
    def call(self, inputs):
         pool_layer = self.particlenet(inputs)
         encoder_output = self.encoder(pool_layer)
-       # if 'vae'.lower() in self.setting.ae_type :
-       #     z, z_mean_, z_log_var = encoder_output
-       # else : z = encoder_output
-        decoder_output = self.decoder(encoder_output )#z) #has to be changed for VAE
-       # encoder_output = self.encoder(pool_layer)
-       # decoder_output = self.decoder(encoder_output[0])
+        if 'vae'.lower() in self.setting.ae_type :
+            z, z_mean, z_log_var = encoder_output
+        else : z = encoder_output
+        decoder_output = self.decoder(z) 
         return encoder_output, decoder_output
 
 
@@ -189,34 +198,49 @@ class PNVAE(tf.keras.Model):
 
         with tf.GradientTape() as tape:
             encoder_output, decoder_output  = self((coord_in, feats_in))  # Forward pass
-            # Compute the loss value 
-            #TO DO : write loss for VAE/AE
-            if 'vae'.lower() in self.setting.ae_type :
-                z, z_mean_, z_log_var = encoder_output
-            else : z = encoder_output
             feats_out = decoder_output
-            loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+            if 'vae'.lower() in self.setting.ae_type :
+                z, z_mean, z_log_var = encoder_output
+                loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+                loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
+                loss = loss_reco + self.setting.beta_kl  * loss_latent 
+            else : 
+                z = encoder_output
+                loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
 
+        metrics = {'loss':loss}
+        if 'vae'.lower() in self.setting.ae_type :
+           metrics['loss_reco'] = loss_reco
+           metrics['loss_latent'] = loss_latent
+       
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
         # Return a dict mapping metric names to current value
-        return {m.name: m.result() for m in self.metrics}
+        return metrics
 
 
    def test_step(self, data):
         (coord_in, feats_in) , feats_in = data
         encoder_output, decoder_output = self((coord_in, feats_in), training=False)  # Forward pass
-        if 'vae'.lower() in self.setting.ae_type :
-            z, z_mean_, z_log_var = encoder_output
-        else : z = encoder_output
         feats_out = decoder_output
-        #TO DO : write loss for VAE/AE
-        loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+        if 'vae'.lower() in self.setting.ae_type :
+            z, z_mean, z_log_var = encoder_output
+            loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+            loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
+            loss = loss_reco + self.setting.beta_kl  * loss_latent 
+        else : 
+           z = encoder_output
+           loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
+
+        metrics = {'loss':loss}
+        if 'vae'.lower() in self.setting.ae_type :
+           metrics['loss_reco'] = loss_reco
+           metrics['loss_latent'] = loss_latent
     
-        return {'loss' : loss}
+        return metrics
     
     
 
