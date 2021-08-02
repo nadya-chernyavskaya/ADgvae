@@ -97,7 +97,7 @@ setting.conv_linking = 'concat' #concat or sum
 setting.num_points = nodes_n #num of original consituents
 setting.num_features = feat_sz #num of original features
 setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
-setting.latent_dim = params.latent_dimsetting.ae_type = 'vae'  #ae or vae 
+setting.latent_dim = params.latent_dim
 setting.ae_type = 'ae'  #ae or vae 
 setting.kl_warmup_time = params.kl_warmup_time
 setting.activation = params.activation

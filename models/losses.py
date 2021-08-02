@@ -5,7 +5,8 @@ import numpy as np
 @tf.function
 def kl_loss(z_mean, z_log_var):
     kl = 1. + z_log_var - tf.square(z_mean) - tf.exp(z_log_var)
-    return -0.5 * tf.reduce_mean(kl, axis=-1)
+    #return -0.5 * tf.reduce_mean(kl, axis=-1)
+    return -0.5 * tf.reduce_sum(kl, axis=-1)
 
 ### 3D LOSS
 @tf.function
@@ -30,7 +31,7 @@ def threeD_loss_manual(inputs, outputs):
 # wrapper for mse loss to pass as reco loss
 @tf.function
 def mse_loss(inputs, outputs):
-    return tf.keras.losses.MeanSquaredError()(inputs_upd, outputs_upd)
+    return tf.keras.losses.MeanSquaredError()(inputs, outputs)
 
 
 def mse_loss_manual(inputs, outputs):
