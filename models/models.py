@@ -332,6 +332,7 @@ class EdgeConvAutoEncoder(tf.keras.Model):
     
 
 class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
+    #TO DO : not yet workingm, needs to be debugged. But PN VAE is much more powerful and flexible 
     def __init__(self, nodes_n, feat_sz,k_neighbors, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
@@ -409,7 +410,7 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
             # Compute the loss value ( Chamfer plus KL)
             loss_reco = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,features_out))
             loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-            loss = loss_reco + self.beta_kl  * loss_latent *(1 if self.beta_kl_warmup==0 else self.beta_kl_warmup )
+            loss = loss_reco + self.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
@@ -424,7 +425,7 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
         features_out, z, z_mean, z_log_var = self((nodes_feats_in, edge_feats_in), training=False)  # Forward pass
         loss_reco = tf.math.reduce_mean(losses.threeD_loss(nodes_feats_in,features_out))
         loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-        loss = loss_reco + self.beta_kl  * loss_latent *(1 if self.beta_kl_warmup==0 else self.beta_kl_warmup )
+        loss = loss_reco + self.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
         return {'loss' : loss, 'loss_reco': loss_reco, 'loss_latent': loss_latent}   
 
 

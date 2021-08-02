@@ -16,15 +16,12 @@ class PNVAE(tf.keras.Model):
       self.setting = setting
       self.latent_dim = setting.latent_dim
       self.activation =klayers.LeakyReLU(alpha=0.1) #TO DO : pass activation
-      #  self.kl_warmup_time = setting.kl_warmup_time
-      #  self.beta_kl = setting.beta_kl 
-      #  self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
+      self.kl_warmup_time = setting.kl_warmup_time
+      self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
       self.particlenet = self.build_particlenet()
-    #  self.encoder = self.build_encoder()
-    #  self.decoder = self.build_decoder()
-      self.sampling = self._sampling()
-      self.encoder = self._encoder()
-      self.decoder = self._decoder()
+      self.sampling = self.build_sampling()
+      self.encoder = self.build_encoder()
+      self.decoder = self.build_decoder()
 
 
    def build_edgeconv(self,points,features, input_shape=[0,0],K=7,channels=32):
@@ -120,7 +117,7 @@ class PNVAE(tf.keras.Model):
            particle_net_base.summary()
            return particle_net_base 
 
-   def _sampling(self):
+   def build_sampling(self):
         input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='sampling_input')
         z_mean = keras.layers.Dense(self.setting.latent_dim, name = 'z_mean', activation=self.activation )(input_layer)
         z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation )(input_layer)
@@ -131,7 +128,7 @@ class PNVAE(tf.keras.Model):
         sampling_model = tf.keras.Model(inputs=(input_layer), outputs=[z,z_mean,z_log_var],name='SamplingLayer')
         return sampling_model  
 
-   def _encoder(self):
+   def build_encoder(self):
         input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
         if 'vae'.lower() in self.setting.ae_type :
             encoder_output = self.sampling(input_layer)
@@ -144,7 +141,7 @@ class PNVAE(tf.keras.Model):
         return encoder_model
 
 
-   def _decoder(self):
+   def build_decoder(self):
         input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
         num_channels = self.setting.conv_params[-1][-1][-1]
         if 1>0:
@@ -168,21 +165,6 @@ class PNVAE(tf.keras.Model):
             return decoder 
 
 
-   def build_encoder(self):
-        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
-        encoder_output = layers.ParticleNetEncoder(setting=self.setting, name=self.name)(input_layer)
-        encoder = tf.keras.Model(inputs=input_layer, outputs=encoder_output,name='Encoder')
-        encoder.summary()
-        return encoder 
-
-   def build_decoder(self):
-        input_layer   = klayers.Input(shape=(self.setting.latent_dim, ), name='decoder_input')
-        decoder_output = layers.ParticleNetDecoder(setting=self.setting, name=self.name)(input_layer)
-        decoder = tf.keras.Model(inputs=input_layer, outputs=decoder_output,name='Decoder')
-        decoder.summary()
-        return decoder 
-
-
    def call(self, inputs):
         pool_layer = self.particlenet(inputs)
         encoder_output = self.encoder(pool_layer)
@@ -203,7 +185,7 @@ class PNVAE(tf.keras.Model):
                 z, z_mean, z_log_var = encoder_output
                 loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
                 loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-                loss = loss_reco + self.setting.beta_kl  * loss_latent 
+                loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
             else : 
                 z = encoder_output
                 loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
@@ -230,7 +212,7 @@ class PNVAE(tf.keras.Model):
             z, z_mean, z_log_var = encoder_output
             loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
             loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-            loss = loss_reco + self.setting.beta_kl  * loss_latent 
+            loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
         else : 
            z = encoder_output
            loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
