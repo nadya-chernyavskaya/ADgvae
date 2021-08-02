@@ -24,6 +24,10 @@ class PNVAE(tf.keras.Model):
       self.encoder = self.build_encoder()
       self.decoder = self.build_decoder()
 
+      self.loss_tracker = keras.metrics.Mean(name="loss")
+      self.reco_loss_tracker = keras.metrics.Mean(name="reco_loss")
+      self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
+
 
    def build_edgeconv(self,points,features,K=7,channels=32,name=''):
       """EdgeConv
@@ -116,7 +120,9 @@ class PNVAE(tf.keras.Model):
         z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
         batch = tf.shape(z_mean)[0]
         dim = tf.shape(z_mean)[1]
-        epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
+        batch = tf.shape(z_mean)[0]
+        dim = tf.shape(z_mean)[1]
+        epsilon = tf.keras.backend.random_normal(shape=(batch, dim)) #,mean=0., stddev=0.1
         z = z_mean + tf.exp(0.5 * z_log_var) * epsilon
         sampling_model = tf.keras.Model(inputs=(input_layer), outputs=[z,z_mean,z_log_var],name='SamplingLayer')
         return sampling_model  
@@ -183,6 +189,13 @@ class PNVAE(tf.keras.Model):
         decoder_output = self.decoder(z) 
         return encoder_output, decoder_output
 
+   @property
+   def metrics(self):
+       return [
+           self.loss_tracker,
+           self.reco_loss_tracker,
+           self.kl_loss_tracker,
+       ]
 
    def train_step(self, data):
         (coord_in, feats_in) , feats_in = data
@@ -199,18 +212,27 @@ class PNVAE(tf.keras.Model):
                 z = encoder_output
                 loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
 
-        metrics = {'loss':loss}
-        if 'vae'.lower() in self.setting.ae_type :
-           metrics['loss_reco'] = loss_reco
-           metrics['loss_latent'] = loss_latent
+      #  metrics = {'loss':loss}
+      #  if 'vae'.lower() in self.setting.ae_type :
+      #     metrics['loss_reco'] = loss_reco
+      #     metrics['loss_latent'] = loss_latent
        
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        self.loss_tracker.update_state(loss)
         # Return a dict mapping metric names to current value
-        return metrics
+        return_metrics = {
+            "loss": self.loss_tracker.result(),
+            }
+        if 'vae'.lower() in self.setting.ae_type :
+            self.reco_loss_tracker.update_state(loss_reco)
+            self.kl_loss_tracker.update_state(loss_latent)
+            return_metrics["reco_loss"] =  self.reco_loss_tracker.result()
+            return_metrics["kl_loss"] =  self.kl_loss_tracker.result()
+        return return_metrics
 
 
    def test_step(self, data):
