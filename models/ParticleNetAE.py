@@ -13,6 +13,7 @@ class PNVAE(tf.keras.Model):
    def __init__(self,setting, **kwargs):
       super(PNVAE, self).__init__(**kwargs)
       self.setting = setting
+      self.ae_input_dim = setting.conv_params[-1][-1][-1]*2 if setting.conv_linking == 'concat' else setting.conv_params[-1][-1][-1]
       self.with_bn = True 
       self.latent_dim = setting.latent_dim
       self.activation = setting.activation
@@ -68,10 +69,12 @@ class PNVAE(tf.keras.Model):
                 sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
          sc = tf.squeeze(sc, axis=2)
 
+         x = sc + fts #sum by default, original PN
+         if self.setting.conv_linking == 'concat': #concat or sum
+            x = tf.concat([sc,fts],axis=2) 
          if self.activation:
-            return keras.layers.Activation(self.activation, name='%s_sc_act' % name)(sc + fts)  # (N, P, C') #TO DO : try with concatenation instead of sum
-         else:
-            return sc + fts
+            x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
+         return x
 
 
 
@@ -108,7 +111,7 @@ class PNVAE(tf.keras.Model):
            return particle_net_base 
 
    def build_sampling(self):
-        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='sampling_input')
+        input_layer   = klayers.Input(shape=(self.ae_input_dim, ), name='sampling_input')
         z_mean = keras.layers.Dense(self.setting.latent_dim, name = 'z_mean', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
         z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
         batch = tf.shape(z_mean)[0]
@@ -119,7 +122,7 @@ class PNVAE(tf.keras.Model):
         return sampling_model  
 
    def build_encoder(self):
-        input_layer   = klayers.Input(shape=(self.setting.conv_params[-1][-1][-1], ), name='encoder_input')
+        input_layer   = klayers.Input(shape=(self.ae_input_dim, ), name='encoder_input')
         if 'vae'.lower() in self.setting.ae_type :
             encoder_output = self.sampling(input_layer)
             encoder_model = tf.keras.Model(inputs=(input_layer), outputs=encoder_output,name='Encoder')

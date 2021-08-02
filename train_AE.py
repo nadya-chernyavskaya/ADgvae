@@ -20,14 +20,14 @@ import utils.preprocessing as prepr
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
 params = Parameters(model='PN_VAE',
-                    latent_dim=10, 
+                    latent_dim=30, 
                     beta_kl=10, 
-                    kl_warmup_time=5, 
+                    kl_warmup_time=3, 
                     epochs=100, 
                     train_total_n=int(1*10e5), 
                     valid_total_n=int(1*10e4), 
                     batch_n=256, 
-                    activation=tf.keras.layers.LeakyReLU(alpha=0.1),
+                    activation=tf.keras.layers.LeakyReLU(alpha=0.2),
                     learning_rate=0.001)
 
 # ********************************************************
@@ -87,12 +87,13 @@ class _DotDict:
 setting = _DotDict()
  # conv_params: list of tuple in the format (K, (C1, C2, C3))
 setting.conv_params = [
-        (7, (32, 32, 32)),
-        (7, (64, 64, 64)),
+        (20, (32, 32, 32)),
+        (20, (64, 64, 64)),
         ]
 setting.conv_params_decoder = [64,32,6]
 # conv_pooling: 'average' or 'max'
 setting.conv_pooling = 'average'
+setting.conv_linking = 'concat' #concat or sum
 setting.num_points = nodes_n #num of original consituents
 setting.num_features = feat_sz #num of original features
 setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
@@ -100,7 +101,7 @@ setting.latent_dim = params.latent_dim
 setting.ae_type = 'vae'  #ae or vae 
 setting.beta_kl = params.beta_kl
 setting.kl_warmup_time = params.kl_warmup_time
-setting.activation = params.activation 
+setting.activation = params.activation
 
 model = pnae.PNVAE(setting=setting,name='PN_VAE_')
 model.compile(optimizer=optimizer)
