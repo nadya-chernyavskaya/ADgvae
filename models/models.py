@@ -137,6 +137,84 @@ class GraphVariationalAutoencoder(GraphAutoencoder):
         return {'loss' : loss_reco+loss_latent, 'loss_reco': loss_reco, 'loss_latent': loss_latent}
     
     
+class GCNAutoEncoder(GraphAutoencoder):
+    def __init__(self, nodes_n, feat_sz, activation, latent_dim, **kwargs):
+        self.latent_dim = latent_dim
+        super(GCNAutoEncoder , self).__init__(nodes_n, feat_sz, activation, **kwargs)
+        self.encoder = self.build_encoder()
+        self.decoder = self.build_decoder()
+
+    def build_encoder(self):
+        inputs_feat = tf.keras.layers.Input(shape=self.input_shape_feat, dtype=tf.float32, name='encoder_input_features')
+        inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='encoder_input_adjacency')
+        x = inputs_feat
+
+        x = layers.GraphConvolutionBias(output_sz=6, activation=self.activation)(x, inputs_adj)
+        x = layers.GraphConvolutionBias(output_sz=2, activation=self.activation)(x, inputs_adj)
+      #  for output_sz in reversed(range(2, self.feat_sz)):
+      #      x = layers.GraphConvolutionBias(output_sz=output_sz, activation=self.activation)(x, inputs_adj) #right now size is 2 x nodes_n
+
+        '''create flatten layer'''
+        x = klayers.Flatten()(x) #flattened to 2 x nodes_n
+        '''create dense layer #1 '''
+        x = klayers.Dense(self.nodes_n, activation=self.activation)(x) 
+        x = klayers.Dense(self.latent_dim, activation=self.activation)(x)  
+        encoder =  tf.keras.Model(inputs=(inputs_feat, inputs_adj), outputs=[x])
+        encoder.summary()
+        return encoder
+    
+
+    def build_decoder(self):
+        inputs_feat = tf.keras.layers.Input(shape=self.latent_dim, dtype=tf.float32, name='decoder_input_latent_space') 
+        inputs_adj = tf.keras.layers.Input(shape=self.input_shape_adj, dtype=tf.float32, name='decoder_input_adjacency')
+        out = inputs_feat
+
+        out = klayers.Dense(self.nodes_n, activation=self.activation)(out)     #'relu'
+        out = klayers.Dense(2*self.nodes_n, activation=self.activation)(out)   #'relu'
+        ''' reshape to 2 x nodes_n '''
+        out = tf.keras.layers.Reshape((self.nodes_n,2), input_shape=(2*self.nodes_n,))(out) 
+        ''' reconstruct ''' 
+       # for output_sz in range(2+1, self.feat_sz+1): #TO DO: none of this should be hardcoded , to be fixed
+       #     out = layers.GraphConvolutionBias(output_sz=output_sz, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolutionBias(output_sz=6, activation=self.activation)(out, inputs_adj)
+        out = layers.GraphConvolutionBias(output_sz=self.feat_sz, activation=self.activation)(out, inputs_adj)
+
+        decoder =  tf.keras.Model(inputs=(inputs_feat, inputs_adj), outputs=out)
+        decoder.summary()
+        return decoder
+
+    
+    def call(self, inputs):
+        (X, adj_orig) = inputs
+        z = self.encoder(inputs)
+        features_out = self.decoder( (z, adj_orig) )
+        return features_out, z
+   
+    
+    def train_step(self, data):
+        (X, adj_orig) = data
+
+        with tf.GradientTape() as tape:
+            features_out, z  = self((X, adj_orig))  # Forward pass
+            # Compute the loss value ( Chamfer plus KL)
+            loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
+            loss = loss_reco 
+        # Compute gradients
+        trainable_vars = self.trainable_variables
+        gradients = tape.gradient(loss, trainable_vars)
+        # Update weights
+        self.optimizer.apply_gradients(zip(gradients, trainable_vars))
+        # Return a dict mapping metric names to current value
+        return {'loss' : loss}
+
+
+    def test_step(self, data):
+        (X, adj_orig) = data
+        features_out, z = self((X, adj_orig), training=False)  # Forward pass
+        loss_reco = tf.math.reduce_mean(losses.threeD_loss(X,features_out))
+        loss = loss_reco 
+        return {'loss' : loss}   
+
 
 class GCNVariationalAutoEncoder(GraphAutoencoder):
     

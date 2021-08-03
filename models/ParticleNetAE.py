@@ -13,8 +13,9 @@ class PNVAE(tf.keras.Model):
    def __init__(self,setting, **kwargs):
       super(PNVAE, self).__init__(**kwargs)
       self.setting = setting
-      self.ae_input_dim = setting.conv_params[-1][-1][-1]*2 if setting.conv_linking == 'concat' else setting.conv_params[-1][-1][-1]
-      self.with_bn = True 
+      #self.ae_input_dim = setting.conv_params_encoder_input*2 if setting.conv_linking == 'concat' else setting.conv_params_encoder_input
+      self.ae_input_dim = setting.conv_params_encoder_input*2*setting.num_points if setting.conv_linking == 'concat' else setting.conv_params_encoder_input*setting.num_points #this is in case we flatten
+      self.with_bn = setting.with_bn if setting.with_bn!=None else True 
       self.latent_dim = setting.latent_dim
       self.activation = setting.activation
       self.kl_warmup_time = setting.kl_warmup_time
@@ -50,7 +51,8 @@ class PNVAE(tf.keras.Model):
          fts = features
          knn_fts = funcs.knn(self.setting.num_points, K, indices, fts)  # (N, P, K, C)
          knn_fts_center = tf.tile(tf.expand_dims(fts, axis=2), (1, 1, K, 1))  # (N, P, K, C)
-         knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C)
+         #knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C)
+         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #Andre style
 
          x = knn_fts
          for idx, channel in enumerate(channels):
@@ -95,7 +97,9 @@ class PNVAE(tf.keras.Model):
                mask = tf.cast(tf.not_equal(mask, 0), dtype='float32')  # 1 if valid
                coord_shift = tf.multiply(999., tf.cast(tf.equal(mask, 0), dtype='float32'))  # make non-valid positions to 99
 
-           fts = tf.squeeze(klayers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
+           if self.with_bn:
+               fts = tf.squeeze(klayers.BatchNormalization(name='%s_fts_bn' % self.name)(tf.expand_dims(features, axis=2)), axis=2)
+           fts = features 
            for layer_idx, layer_param in enumerate(self.setting.conv_params):
                K, channels = layer_param
                if mask is not None:
@@ -108,7 +112,9 @@ class PNVAE(tf.keras.Model):
            if mask is not None:
                fts = tf.multiply(fts, mask)
 
-           pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+        #   pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+           # Flatten to format for MLP input
+           pool=klayers.Flatten(name='Flatten_PN')(fts)
 
            particle_net_base = tf.keras.Model(inputs=(points,features), outputs=pool,name='ParticleNetBase')
            particle_net_base.summary()

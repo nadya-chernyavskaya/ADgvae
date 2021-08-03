@@ -20,14 +20,14 @@ import utils.preprocessing as prepr
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
 params = Parameters(model='PN_VAE',
-                    latent_dim=5, 
+                    latent_dim=10, 
                     beta_kl=10, 
                     kl_warmup_time=3, 
                     epochs=100, 
                     train_total_n=int(1*10e5), 
                     valid_total_n=int(1*10e4), 
                     batch_n=256, 
-                    activation=tf.keras.layers.LeakyReLU(alpha=0.2),
+                    activation=tf.keras.layers.LeakyReLU(alpha=0.1),
                     learning_rate=0.001)
 
 # ********************************************************
@@ -35,7 +35,7 @@ params = Parameters(model='PN_VAE',
 # ********************************************************
 
 DATA_PATH = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/'
-filename_bg = DATA_PATH + 'QCD_training_data_02_08_2021.h5'
+filename_bg = DATA_PATH + 'QCD_training_data_100const_03_08_2021.h5'
 inFile = h5py.File(filename_bg, 'r')
 #particles_bg = inFile['particle_bg'][()]
 #particles_bg_valid = inFile['particle_bg_valid'][()]
@@ -87,16 +87,17 @@ class _DotDict:
 setting = _DotDict()
  # conv_params: list of tuple in the format (K, (C1, C2, C3))
 setting.conv_params = [
-       (7, (8, 12, 18)),
-        (20, (25, 40, 64)),
-        (30, (64,70, 70)),
+        (20, [64]),
+        (15, [32]),
+        (7, [12]),
       #  (20, (32, 32, 32)),
       #  (20, (64, 64, 64)),
       #  (, (32, 32, 32)),
       #  (20, (64, 64, 64)),
         ]
+setting.conv_params_encoder_input = 12
 #setting.conv_params_decoder = [64,32,6]
-setting.conv_params_decoder = [60,32,16,8, 5]
+setting.conv_params_decoder = [10,8,4]
 # conv_pooling: 'average' or 'max'
 setting.conv_pooling = 'average'
 setting.conv_linking = 'concat' #concat or sum
@@ -113,12 +114,12 @@ model = pnae.PNVAE(setting=setting,name='PN_AE_')
 model.compile(optimizer=optimizer)
 #model.summary()
 
+model.save('output_model_saved_{}_{}'.format(params.model,timestamp))
 history = model.fit((particles_bg[:,:,0:2], particles_bg) , particles_bg,
                     validation_data = ((particles_bg_valid[:,:,0:2], particles_bg_valid) , particles_bg_valid),
                     epochs=params.epochs, 
                     batch_size=batch_size, 
                     verbose=1,
                     callbacks=callbacks) 
-model.save('output_model_saved_{}_{}'.format(params.model,timestamp))
 
 

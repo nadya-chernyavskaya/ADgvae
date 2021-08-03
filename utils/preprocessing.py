@@ -90,7 +90,7 @@ def prepare_data_constituents(filename,num_instances,start=0,end=-1):
     data = h5py.File(filename, 'r') 
     constituents = data['jetConstituentsList'][start:end,]
     features = data['eventFeatures'][start:end,]
-    constituents = constituents[:,:,0:50,:] #first select some, as they are ordered in pt, and we shuffle later
+    #constituents = constituents[:,:,0:50,:] #first select some, as they are ordered in pt, and we shuffle later
     samples = events_to_input_samples(constituents, features)
     # The dataset is N_jets x N_constituents x N_features
     njet     = samples.shape[0]
