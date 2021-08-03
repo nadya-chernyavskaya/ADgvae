@@ -19,8 +19,8 @@ import utils.preprocessing as prepr
 # ********************************************************
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
-params = Parameters(model='PN_AE',
-                    latent_dim=10, 
+params = Parameters(model='PN_VAE',
+                    latent_dim=5, 
                     beta_kl=10, 
                     kl_warmup_time=3, 
                     epochs=100, 
@@ -87,10 +87,16 @@ class _DotDict:
 setting = _DotDict()
  # conv_params: list of tuple in the format (K, (C1, C2, C3))
 setting.conv_params = [
-        (20, (32, 32, 32)),
-        (20, (64, 64, 64)),
+       (7, (8, 12, 18)),
+        (20, (25, 40, 64)),
+        (30, (64,70, 70)),
+      #  (20, (32, 32, 32)),
+      #  (20, (64, 64, 64)),
+      #  (, (32, 32, 32)),
+      #  (20, (64, 64, 64)),
         ]
-setting.conv_params_decoder = [64,32,6]
+#setting.conv_params_decoder = [64,32,6]
+setting.conv_params_decoder = [60,32,16,8, 5]
 # conv_pooling: 'average' or 'max'
 setting.conv_pooling = 'average'
 setting.conv_linking = 'concat' #concat or sum
@@ -98,7 +104,8 @@ setting.num_points = nodes_n #num of original consituents
 setting.num_features = feat_sz #num of original features
 setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
 setting.latent_dim = params.latent_dim
-setting.ae_type = 'ae'  #ae or vae 
+setting.ae_type = 'vae'  #ae or vae 
+setting.beta_kl = 10
 setting.kl_warmup_time = params.kl_warmup_time
 setting.activation = params.activation
 

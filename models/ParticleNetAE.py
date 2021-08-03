@@ -120,8 +120,6 @@ class PNVAE(tf.keras.Model):
         z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
         batch = tf.shape(z_mean)[0]
         dim = tf.shape(z_mean)[1]
-        batch = tf.shape(z_mean)[0]
-        dim = tf.shape(z_mean)[1]
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim)) #,mean=0., stddev=0.1
         z = z_mean + tf.exp(0.5 * z_log_var) * epsilon
         sampling_model = tf.keras.Model(inputs=(input_layer), outputs=[z,z_mean,z_log_var],name='SamplingLayer')

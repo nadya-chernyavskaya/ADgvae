@@ -29,7 +29,7 @@ _,_, particles_bg_valid = prepr.prepare_data_constituents(filename_bg_valid,vali
 _,_, particles_bg_test = prepr.prepare_data_constituents(filename_bg_valid,5000,valid_set_size+1,valid_set_size+5000)
 
 
-output_file = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/QCD_training_data_02_08_2021.h5'
+output_file = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/QCD_training_data_100const_03_08_2021.h5'
 with h5py.File(output_file, 'w')as outFile:
     outFile.create_dataset('particle_bg', data=particles_bg, compression='gzip')
     outFile.create_dataset('particle_bg_valid', data=particles_bg_valid, compression='gzip')
