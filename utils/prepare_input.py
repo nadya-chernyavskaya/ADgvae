@@ -13,7 +13,7 @@ DATA_PATH = '/eos/project/d/dshep/TOPCLASS/DijetAnomaly/VAE_data/events/'
 TRAIN_NAME = 'qcd_sqrtshatTeV_13TeV_PU40_NEW_sideband'
 filename_bg = DATA_PATH + TRAIN_NAME + '_parts/' + TRAIN_NAME + '_000.h5'
 batch_size = 128
-train_set_size = int((5*10e5//batch_size)*batch_size)
+train_set_size = int((1*10e6//batch_size)*batch_size) #10 million probably good
 
 nodes_n, feat_sz, particles_bg  = prepr.prepare_data_constituents(filename_bg,train_set_size,0,train_set_size+1)
 
@@ -29,7 +29,7 @@ _,_, particles_bg_valid = prepr.prepare_data_constituents(filename_bg_valid,vali
 _,_, particles_bg_test = prepr.prepare_data_constituents(filename_bg_valid,5000,valid_set_size+1,valid_set_size+5000)
 
 
-output_file = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/QCD_training_data_100const_03_08_2021.h5'
+output_file = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/input/QCD_training_data_100const_05_08_2021.h5'
 with h5py.File(output_file, 'w')as outFile:
     outFile.create_dataset('particle_bg', data=particles_bg, compression='gzip')
     outFile.create_dataset('particle_bg_valid', data=particles_bg_valid, compression='gzip')

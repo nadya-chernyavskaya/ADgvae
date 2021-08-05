@@ -21,14 +21,8 @@ class PNVAE(tf.keras.Model):
       self.kl_warmup_time = setting.kl_warmup_time
       self.beta_kl_warmup = tf.Variable(0.0, trainable=False, name='beta_kl_warmup', dtype=tf.float32)
       self.particlenet = self.build_particlenet()
-      self.sampling = self.build_sampling()
       self.encoder = self.build_encoder()
       self.decoder = self.build_decoder()
-
-      self.loss_tracker = keras.metrics.Mean(name="loss")
-      self.reco_loss_tracker = keras.metrics.Mean(name="reco_loss")
-      self.kl_loss_tracker = keras.metrics.Mean(name="kl_loss")
-
 
    def build_edgeconv(self,points,features,K=7,channels=32,name=''):
       """EdgeConv
@@ -51,8 +45,8 @@ class PNVAE(tf.keras.Model):
          fts = features
          knn_fts = funcs.knn(self.setting.num_points, K, indices, fts)  # (N, P, K, C)
          knn_fts_center = tf.tile(tf.expand_dims(fts, axis=2), (1, 1, K, 1))  # (N, P, K, C)
-         #knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C)
-         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #Andre style
+         #knn_fts = tf.concat([knn_fts_center, tf.subtract(knn_fts, knn_fts_center)], axis=-1)  # (N, P, K, 2*C) #TO DO: Investigate why this assymetric function actually performs worse 
+         knn_fts =  tf.subtract(knn_fts, knn_fts_center) #TO DO : This edge function should be local info only
 
          x = knn_fts
          for idx, channel in enumerate(channels):
@@ -75,11 +69,15 @@ class PNVAE(tf.keras.Model):
                 sc = keras.layers.BatchNormalization(name='%s_sc_bn' % name)(sc)
          sc = tf.squeeze(sc, axis=2)
 
-         x = sc + fts #sum by default, original PN
-         if self.setting.conv_linking == 'concat': #concat or sum
-            x = tf.concat([sc,fts],axis=2) 
-         if self.activation:
-            x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
+         x = fts #TO DO : investigate why inclusing sum/concatenation degrades performance. In fact sensitivity to different signals is removed
+         #Right now there is no use of shortcut         
+
+          
+       #  x = sc + fts #sum by default, original PN. It probably should be added after latent space
+       #  if self.setting.conv_linking == 'concat': #concat or sum
+       #     x = tf.concat([sc,fts],axis=2) 
+       #  if self.activation:
+       #     x =  keras.layers.Activation(self.activation, name='%s_sc_act' % name)(x)  # (N, P, C') #TO DO : try with concatenation instead of sum
          return x
 
 
@@ -112,34 +110,37 @@ class PNVAE(tf.keras.Model):
            if mask is not None:
                fts = tf.multiply(fts, mask)
 
-        #   pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
+           #pool = tf.reduce_mean(fts, axis=1)  # (N, C)  #pooling over all jet constituents
            # Flatten to format for MLP input
-           pool=klayers.Flatten(name='Flatten_PN')(fts)
+           pool=klayers.Flatten(name='Flatten_PN')(fts) #seems liks Flatteneing or pooling performs the same, interesting because when flatten one has much more parameters...
 
            particle_net_base = tf.keras.Model(inputs=(points,features), outputs=pool,name='ParticleNetBase')
            particle_net_base.summary()
            return particle_net_base 
 
-   def build_sampling(self):
-        input_layer   = klayers.Input(shape=(self.ae_input_dim, ), name='sampling_input')
-        z_mean = keras.layers.Dense(self.setting.latent_dim, name = 'z_mean', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
-        z_log_var = keras.layers.Dense(self.setting.latent_dim, name = 'z_log_var', activation=self.activation,kernel_initializer='glorot_normal' )(input_layer)
-        batch = tf.shape(z_mean)[0]
-        dim = tf.shape(z_mean)[1]
-        epsilon = tf.keras.backend.random_normal(shape=(batch, dim)) #,mean=0., stddev=0.1
-        z = z_mean + tf.exp(0.5 * z_log_var) * epsilon
-        sampling_model = tf.keras.Model(inputs=(input_layer), outputs=[z,z_mean,z_log_var],name='SamplingLayer')
-        return sampling_model  
 
    def build_encoder(self):
         input_layer   = klayers.Input(shape=(self.ae_input_dim, ), name='encoder_input')
-        if 'vae'.lower() in self.setting.ae_type :
-            encoder_output = self.sampling(input_layer)
-            encoder_model = tf.keras.Model(inputs=(input_layer), outputs=encoder_output,name='Encoder')
-        else :  
-            latent_space = keras.layers.Dense(self.setting.latent_dim,activation=self.activation,
-                                              kernel_initializer='glorot_normal')(input_layer)
-            encoder_output = [latent_space]
+        x = input_layer
+        if 'vae'.lower() in self.setting.ae_type : #TO DO: add some dense layers in between
+            for layer_idx in range(0,len(self.setting.conv_params_encoder)):
+                layer_param  = self.setting.conv_params_encoder[layer_idx]
+                x = keras.layers.Dense(self.setting.latent_dim*layer_param,activation=self.activation,
+                                              kernel_initializer='glorot_normal')(x) 
+            self.z_mean = tf.keras.layers.Dense(self.setting.latent_dim, name='z_mean')(x) #no activation
+            self.z_log_var = tf.keras.layers.Dense(self.setting.latent_dim, name='z_log_var')(x) #no activation
+            # use reparameterization trick to push the sampling out as input
+            self.z = layers.Sampling()((self.z_mean, self.z_log_var))
+            encoder_model = tf.keras.Model(inputs=(input_layer), outputs=[self.z,self.z_mean,self.z_log_var],name='Encoder')
+
+        else : 
+            for layer_idx in range(0,len(self.setting.conv_params_encoder)):
+                layer_param  = self.setting.conv_params_encoder[layer_idx]
+                x = keras.layers.Dense(self.setting.latent_dim*layer_param,activation=self.activation,
+                                              kernel_initializer='glorot_normal')(x) 
+            self.z = keras.layers.Dense(self.setting.latent_dim,activation=self.activation,
+                                              kernel_initializer='glorot_normal')(x) 
+            encoder_output = [self.z]
             encoder_model = tf.keras.Model(inputs=(input_layer), outputs=encoder_output,name='Encoder')
         encoder_model.summary() 
         return encoder_model
@@ -193,13 +194,6 @@ class PNVAE(tf.keras.Model):
         decoder_output = self.decoder(z) 
         return encoder_output, decoder_output
 
-   @property
-   def metrics(self):
-       return [
-           self.loss_tracker,
-           self.reco_loss_tracker,
-           self.kl_loss_tracker,
-       ]
 
    def train_step(self, data):
         (coord_in, feats_in) , feats_in = data
@@ -211,32 +205,30 @@ class PNVAE(tf.keras.Model):
                 z, z_mean, z_log_var = encoder_output
                 loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
                 loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-                loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
+                z_mean_monitor = tf.math.reduce_mean(z_mean)
+                z_log_var_monitor = tf.math.reduce_mean(z_log_var)
+                z_monitor = tf.math.reduce_mean(z)
+                #loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
+                loss = loss_latent + self.setting.beta_kl  * loss_reco *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
             else : 
                 z = encoder_output
                 loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
 
-      #  metrics = {'loss':loss}
-      #  if 'vae'.lower() in self.setting.ae_type :
-      #     metrics['loss_reco'] = loss_reco
-      #     metrics['loss_latent'] = loss_latent
+        metrics = {'loss':loss}
+        if 'vae'.lower() in self.setting.ae_type :
+           metrics['loss_reco'] = loss_reco
+           metrics['loss_latent'] = loss_latent
+           metrics['z_mean'] = z_mean_monitor
+           metrics['z_log_var'] = z_log_var_monitor
+           metrics['z'] = z_monitor
        
         # Compute gradients
         trainable_vars = self.trainable_variables
         gradients = tape.gradient(loss, trainable_vars)
         # Update weights
         self.optimizer.apply_gradients(zip(gradients, trainable_vars))
-        self.loss_tracker.update_state(loss)
         # Return a dict mapping metric names to current value
-        return_metrics = {
-            "loss": self.loss_tracker.result(),
-            }
-        if 'vae'.lower() in self.setting.ae_type :
-            self.reco_loss_tracker.update_state(loss_reco)
-            self.kl_loss_tracker.update_state(loss_latent)
-            return_metrics["reco_loss"] =  self.reco_loss_tracker.result()
-            return_metrics["kl_loss"] =  self.kl_loss_tracker.result()
-        return return_metrics
+        return metrics
 
 
    def test_step(self, data):
@@ -247,7 +239,8 @@ class PNVAE(tf.keras.Model):
             z, z_mean, z_log_var = encoder_output
             loss_reco = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))
             loss_latent = tf.math.reduce_mean(losses.kl_loss(z_mean, z_log_var))
-            loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
+            #loss = loss_reco + self.setting.beta_kl  * loss_latent *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
+            loss = loss_latent + self.setting.beta_kl  * loss_reco *tf.cond(tf.greater(self.beta_kl_warmup, 0), lambda: self.beta_kl_warmup, lambda: 1.)
         else : 
            z = encoder_output
            loss = tf.math.reduce_mean(losses.threeD_loss(feats_in,feats_out))

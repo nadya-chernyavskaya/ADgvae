@@ -19,16 +19,16 @@ import utils.preprocessing as prepr
 # ********************************************************
 
 Parameters = namedtuple('Parameters', 'model latent_dim beta_kl kl_warmup_time epochs train_total_n valid_total_n batch_n activation learning_rate')
-params = Parameters(model='PN_VAE',
+params = Parameters(model='PN_AE',
                     latent_dim=10, 
                     beta_kl=10, 
                     kl_warmup_time=3, 
                     epochs=100, 
-                    train_total_n=int(1*10e5), 
+                    train_total_n=int(1*10e6), 
                     valid_total_n=int(1*10e4), 
-                    batch_n=256, 
+                    batch_n=128, 
                     activation=tf.keras.layers.LeakyReLU(alpha=0.1),
-                    learning_rate=0.001)
+                    learning_rate=0.01)
 
 # ********************************************************
 #       prepare training and validation data
@@ -87,34 +87,31 @@ class _DotDict:
 setting = _DotDict()
  # conv_params: list of tuple in the format (K, (C1, C2, C3))
 setting.conv_params = [
-        (20, [64]),
-        (15, [32]),
-        (7, [12]),
-      #  (20, (32, 32, 32)),
-      #  (20, (64, 64, 64)),
-      #  (, (32, 32, 32)),
-      #  (20, (64, 64, 64)),
+   (15, ([20,20,20])),
+ #   (7, (32, 32, 32)),
+ #   (7, (64, 64, 64)),
         ]
-setting.conv_params_encoder_input = 12
-#setting.conv_params_decoder = [64,32,6]
-setting.conv_params_decoder = [10,8,4]
+setting.conv_params_encoder_input = 20 #20
+setting.conv_params_encoder = []
+setting.conv_params_decoder = [10]  
+setting.with_bn = True
 # conv_pooling: 'average' or 'max'
 setting.conv_pooling = 'average'
-setting.conv_linking = 'concat' #concat or sum
+setting.conv_linking = 'sum' #concat or sum # right now this is off
 setting.num_points = nodes_n #num of original consituents
 setting.num_features = feat_sz #num of original features
 setting.input_shapes = {'points': [nodes_n,feat_sz-1],'features':[nodes_n,feat_sz]}
 setting.latent_dim = params.latent_dim
-setting.ae_type = 'vae'  #ae or vae 
+setting.ae_type = params.model  #ae or vae 
 setting.beta_kl = 10
 setting.kl_warmup_time = params.kl_warmup_time
 setting.activation = params.activation
 
-model = pnae.PNVAE(setting=setting,name='PN_AE_')
+model = pnae.PNVAE(setting=setting,name=params.model)
 model.compile(optimizer=optimizer)
-#model.summary()
-
+_,_= model.predict([particles_bg[0:2,:,0:2],particles_bg[0:2,:,:]]) #hack to save the model
 model.save('output_model_saved_{}_{}'.format(params.model,timestamp))
+
 history = model.fit((particles_bg[:,:,0:2], particles_bg) , particles_bg,
                     validation_data = ((particles_bg_valid[:,:,0:2], particles_bg_valid) , particles_bg_valid),
                     epochs=params.epochs, 

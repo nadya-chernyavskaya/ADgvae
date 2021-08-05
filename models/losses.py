@@ -40,4 +40,8 @@ def mse_loss_manual(inputs, outputs):
     reconstruction_loss = np.mean( np.square(outputs-inputs), axis=-1)
     return np.array(reconstruction_loss)
 
+def kl_loss_manual(z_mean,z_log_var):
+    kl = 1. + z_log_var - np.square(z_mean) - np.exp(z_log_var)
+    kl = -0.5 * np.sum(kl, axis=-1)
+    return np.array(kl)
 
