@@ -410,7 +410,6 @@ class EdgeConvAutoEncoder(tf.keras.Model):
     
 
 class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
-    #TO DO : not yet working, needs to be debugged. But PN VAE is much more powerful and flexible 
     def __init__(self, nodes_n, feat_sz,k_neighbors, activation, latent_dim, beta_kl,kl_warmup_time, **kwargs):
         self.latent_dim = latent_dim
         self.kl_warmup_time = kl_warmup_time
@@ -447,8 +446,8 @@ class EdgeConvVariationalAutoEncoder(EdgeConvAutoEncoder):
         h=klayers.Flatten(name='Flatten')(h)
     
         #Latent dimension and sampling 
-        z_mean = klayers.Dense(self.latent_dim, name = 'z_mean',activation='relu' )(h)
-        z_log_var = klayers.Dense(self.latent_dim, name='z_log_var', activation='relu' )(h)
+        z_mean = klayers.Dense(self.latent_dim, name = 'z_mean' )(h) #no activation
+        z_log_var = klayers.Dense(self.latent_dim, name='z_log_var' )(h) #no activation
         batch = tf.shape(z_mean)[0]
         dim = tf.shape(z_mean)[1]
         epsilon = tf.keras.backend.random_normal(shape=(batch, dim))
