@@ -103,6 +103,21 @@ def gen_in_out(model, loader, device):
     reco_fts = torch.cat(reco_fts)
     return input_fts, reco_fts
 
+@torch.no_grad()
+def gen_in(loader, device):
+    input_fts = []
+
+    for t in loader:
+        if isinstance(t, list):
+            for d in t:
+                input_fts.append(d.x)
+        else:
+            input_fts.append(t.x)
+            t.to(device)
+    input_fts = torch.cat(input_fts)
+    return input_fts
+
+
 def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
     input_fts, reco_fts = gen_in_out(model, loader, device)
     if inverse_scale:

@@ -1,7 +1,7 @@
 import torch
 from utils_torch.scaler import Standardizer
 
-def standardize(train_dataset, valid_dataset=None, test_dataset=None, log_pt=False):
+def standardize(train_dataset, valid_dataset=None, test_dataset=None,minmax_idx = None, log_idx=None):
     """
     standardize dataset and return scaler for inversion
     :param train_dataset: list of Data objects
@@ -11,10 +11,10 @@ def standardize(train_dataset, valid_dataset=None, test_dataset=None, log_pt=Fal
     :return scaler: sklearn StandardScaler
     """
     train_x = torch.cat([d.x for d in train_dataset])
-    if log_pt:
-        train_x[:,0] = torch.log(train_x[:,0] + 1)
+    if log_idx is not None:
+        train_x[:,log_idx] = torch.log(train_x[:,log_idx] + 1)
 
-    scaler = Standardizer()
+    scaler = Standardizer(minmax_idx=minmax_idx, log_idx=log_idx)
     scaler.fit(train_x)
     if (valid_dataset is not None) and (test_dataset is not None) :
         datasets = (train_dataset, valid_dataset, test_dataset)
