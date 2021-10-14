@@ -49,11 +49,14 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
     @property
     def raw_file_names(self):
-        self.input_files = sorted(glob.glob(self.raw_dir+'/*.root'))
-        return [f.split('/')[-1] for f in self.input_files]
+        #self.input_files = sorted(glob.glob(self.raw_dir+'/*.root'))
+        #return [f.split('/')[-1] for f in self.input_files]
+        file = 'BB_batch0.h5'
+        return file
 
     def __len__(self):
         return self.n_jets
+        
   
     def xyze_to_ptep(self,constituents):
         ''' converts an array [N x 100, 4] of particles

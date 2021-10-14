@@ -17,15 +17,15 @@ def xyze_to_ptetaphi_torch(y):
     ''' converts an array [N x 100, 4] of particles
 from px, py, pz, E to pt,eta, phi
     '''
-    PX, PY, PZ, E = range(4)
-    pt = torch.sqrt(torch.pow(y[:,PX], 2) + torch.pow(y[:,PY], 2)) 
-    eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ], pt)))
-    phi = torch.atan2(y[:,PY], y[:,PX])
+    PX_idx, PY_idx, PZ_idx, E_idx = range(4)
+    pt = torch.sqrt(torch.pow(y[:,PX_idx], 2) + torch.pow(y[:,PY_idx], 2)) 
+    eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))
+    phi = torch.atan2(y[:,PY_idx], y[:,PX_idx])
 
     relu =  m = nn.ReLU() #inplace=True
-    y_E_trimmed = relu(y[:,-1]) #trimming E
+    y_E_trimmed = relu(y[:,E_idx]) #trimming E
     y_pt_trimmed = relu(pt) #trimming pt
-    full_y = torch.stack((y[:,0],y[:,1],y[:,2],y_E_trimmed,y_pt_trimmed,eta,phi), dim=1)
+    full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y_E_trimmed,y_pt_trimmed,eta,phi), dim=1)
 
     return full_y
 
