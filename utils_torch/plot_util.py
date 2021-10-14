@@ -38,15 +38,16 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
     Path(save_path).mkdir(parents=True, exist_ok=True)
   #  label = ['$p_x~[GeV]$', '$p_y~[GeV]$', '$p_z~[GeV]$']
    # feat = ['px', 'py', 'pz']
-    label = ['$p_x~[GeV]$', '$p_y~[GeV]$', '$p_z~[GeV]$']
-    feat = ['px', 'py', 'pz']
+    label = ['$p_x~[GeV]$', '$p_y~[GeV]$', '$p_z~[GeV]$', '$E~[GeV]$','$p_T$', '$eta$', '$phi$']
+    feat = ['px', 'py', 'pz','E','pt', 'eta', 'phi']
+
     if feature == 'hadronic':# or 'standardized':
         label = ['$p_T$', '$eta$', '$phi$']
         feat = ['pt', 'eta', 'phi']
         
-    if feature == 'all':# or 'standardized':
-        label = ['$p_x~[GeV]$', '$p_y~[GeV]$', '$p_z~[GeV]$', '$E~[GeV]$','$p_T$', '$eta$', '$phi$']
-        feat = ['px', 'py', 'pz','E','pt', 'eta', 'phi']
+    if feature == 'cartesian':# or 'standardized':
+        label = ['$p_x~[GeV]$', '$p_y~[GeV]$', '$p_z~[GeV]$', '$E~[GeV]$']
+        feat = ['px', 'py', 'pz','E']
         
     # make a separate plot for each feature
     for i in range(input_fts.shape[1]):
@@ -68,11 +69,11 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
             if i == 4:  # different bin size for pt rel
                 bins = np.linspace(-2, 10, 101)
         else:
-            bins = np.linspace(-1, 1, 101)
+            bins = np.linspace(-1, 1, 50)
         plt.ticklabel_format(useMathText=True)
         plt.hist(input_fts[:,i], bins=bins, alpha=0.5, label='Input', histtype='step', lw=5)
         plt.hist(reco_fts[:,i], bins=bins, alpha=0.5, label='Output', histtype='step', lw=5)
-        plt.legend(title='QCD dataset', fontsize='x-large')
+        plt.legend(title='QCD dataset',fontsize=20,bbox_to_anchor=(1., 1.))# fontsize='x-large'
         plt.xlabel(label[i], fontsize='x-large')
         plt.ylabel('Particles', fontsize='x-large')
         plt.tight_layout()
