@@ -22,10 +22,12 @@ from px, py, pz, E to pt,eta, phi
     eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))
     phi = torch.atan2(y[:,PY_idx], y[:,PX_idx])
 
-    relu =  m = nn.ReLU() #inplace=True
-    y_E_trimmed = relu(y[:,E_idx]) #trimming E
-    y_pt_trimmed = relu(pt) #trimming pt
-    full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y_E_trimmed,y_pt_trimmed,eta,phi), dim=1)
+    #relu =  m = nn.ReLU() #inplace=True  #This is actually not needed for E if min-max normalization is used for pt,E, AND!! relu is used as an activation function.
+   # y_E_trimmed = relu(y[:,E_idx]) #trimming E
+    #y_pt_trimmed = relu(pt) #trimming pt
+   # full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y_E_trimmed,y_pt_trimmed,eta,phi), dim=1)
+   # full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y_pt_trimmed,eta,phi), dim=1)
+    full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi), dim=1)
 
     return full_y
 

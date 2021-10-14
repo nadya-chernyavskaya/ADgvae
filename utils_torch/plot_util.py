@@ -3,6 +3,7 @@ import numpy as np
 import os.path as osp
 import matplotlib.pyplot as plt
 from pathlib import Path
+import models_torch.losses as losses
 
 plt_style = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigstyle.mplstyle'
 plt.style.use(plt_style)
@@ -30,8 +31,6 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
     if isinstance(input_fts, torch.Tensor):
         input_fts = input_fts.numpy()
     if isinstance(reco_fts, torch.Tensor):
-       # if feature == 'all':
-       #     reco_fts = xyze_to_ptetaphi_torch(reco_fts)
         reco_fts = reco_fts.numpy()
 
         
@@ -60,7 +59,9 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
             bins = np.linspace(-2, 2, 101)
             if i == 0:  # different bin size for pt rel
                 bins = np.linspace(-0.05, 0.1, 101)
-        elif feature == 'all':
+        elif 'norm' in feature :
+            bins = np.linspace(-1, 1, 50)
+        elif 'all' in feature :
             bins = np.linspace(-20, 20, 101)
             if i > 3:  # different bin size for hadronic coord
                 bins = np.linspace(-2, 2, 101)
@@ -121,6 +122,8 @@ def gen_in(loader, device):
 
 def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
     input_fts, reco_fts = gen_in_out(model, loader, device)
+    if 'mseconv' in feature_format:
+        reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
     if inverse_scale:
         input_fts = scaler.inverse_transform(input_fts)
         reco_fts = scaler.inverse_transform(reco_fts)
