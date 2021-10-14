@@ -37,10 +37,9 @@ class Standardizer:
         return data
 
     def inverse_transform(self, data):
-        print('je ')
         data[:,self.std_idx] =  (data[:,self.std_idx]* self.std) + self.mean
         if self.minmax_idx is not None :
             data[:,self.minmax_idx] =  data[:,self.minmax_idx]* (self.max-self.min) + self.min
-        if log_idx is not None:
-            data[:,log_idx] = (10 ** inverse[:,log_idx]) - 1
-        return inverse
+        if self.log_idx is not None:
+            data[:,self.log_idx] = (torch.exp(data[:,self.log_idx])) - 1
+        return data
