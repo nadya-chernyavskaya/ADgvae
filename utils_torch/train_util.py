@@ -15,7 +15,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj):
     sum_loss_reco = 0.
     sum_loss_kl = 0.
     t = tqdm.tqdm(enumerate(loader),total=total/batch_size)
-
+    for i,data in t:
         batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=False)
         if isinstance(batch_loss,tuple) :
             batch_loss,batch_loss_reco,batch_loss_kl = batch_loss[0].item(),batch_loss[1].item(),batch_loss[2].item()

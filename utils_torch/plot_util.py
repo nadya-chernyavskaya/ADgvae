@@ -83,6 +83,31 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
     
 
 @torch.no_grad()
+def gen_latent(model, loader, device):
+    model.eval()
+    mu_fts,log_var_fts = [], []
+    z_0_fts, z_last_fts = [],[]
+    for t in loader:
+        t.to(device)
+        out = model(t)#tuple
+        if len(out)==6:
+            _, mu, log_var, _, z_0, z_last = out
+            z_0_fts.append(z_0.cpu().detach())
+            z_last_fts.append(z_last.cpu().detach())
+        elif len(out)==3:
+            _, mu, log_var = out
+        mu_fts.append(mu.cpu().detach())
+        log_var_fts.append(log_var.cpu().detach())
+
+    mu_fts = torch.cat(mu_fts)
+    log_var_fts = torch.cat(log_var_fts)
+    if len(out)==6:
+        z_0_fts = torch.cat(z_0_fts)
+        z_last_fts = torch.cat(z_last_fts)
+    return (mu_fts,log_var_fts,z_0_fts,z_last_fts)
+
+
+@torch.no_grad()
 def gen_in_out(model, loader, device):
     model.eval()
     input_fts = []
@@ -104,20 +129,6 @@ def gen_in_out(model, loader, device):
     input_fts = torch.cat(input_fts)
     reco_fts = torch.cat(reco_fts)
     return input_fts, reco_fts
-
-@torch.no_grad()
-def gen_in(loader, device):
-    input_fts = []
-
-    for t in loader:
-        if isinstance(t, list):
-            for d in t:
-                input_fts.append(d.x)
-        else:
-            input_fts.append(t.x)
-            t.to(device)
-    input_fts = torch.cat(input_fts)
-    return input_fts
 
 
 def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
