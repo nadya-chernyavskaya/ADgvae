@@ -58,7 +58,11 @@ def forward_loss(model, data, loss_ftn_obj, device, multi_gpu):
         batch_loss = batch_loss.mean()
 
     elif 'vae_loss' in loss_ftn_obj.name :
-        batch_output, mu, log_var = model(data)
+        model_output = model(data)
+        if len(model_output)==3 :
+            batch_output, mu, log_var = model_output
+        else :
+            batch_output, mu, log_var, log_det_j, z_0, z_last = model_output
         y = torch.cat([d.x for d in data]).to(device) if multi_gpu else data.x
         y = y.contiguous()
         batch_loss_tot,batch_loss_reco,batch_loss_kl = loss_ftn_obj.loss_ftn(batch_output, y, mu, log_var)
