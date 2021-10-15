@@ -33,11 +33,12 @@ from px, py, pz, E to pt,eta, phi
 
 
 class LossFunction:
-    def __init__(self, lossname, device=torch.device('cuda:0')):
+    def __init__(self, lossname, beta = 0.5,device=torch.device('cuda:0')):
         loss = getattr(self, lossname)
         self.name = lossname
         self.loss_ftn = loss
         self.device = device
+        self.beta = beta
         
     def mse(self, x, y):
         return F.mse_loss(x, y, reduction='mean')
@@ -48,4 +49,18 @@ class LossFunction:
         #y is px,py,pz,E
         full_y = xyze_to_ptetaphi_torch(y)
         return self.mse(x,full_y)
+
+    # Reconstruction + KL divergence losses
+    def vae_loss_mse_coord(self, x, y, mu, logvar):
+        MSE = self.mse_coordinates(y,x)
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return (1-self.beta)*MSE + self.beta*KLD, MSE, KLD
         
+    # Reconstruction + KL divergence losses
+    def vae_loss_mse(self, x, y, mu, logvar):
+        MSE = self.mse(y,x)
+        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        return (1-self.beta)*MSE + self.beta*KLD, MSE, KLD
+

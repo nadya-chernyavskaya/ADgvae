@@ -46,7 +46,7 @@ class EdgeNet(nn.Module):
 
 # GVAE based on EdgeNet model above.
 class EdgeNetVAE(nn.Module):
-    def __init__(self, input_dim=4, big_dim=32, hidden_dim=2, aggr='mean'):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean'):
         super(EdgeNetVAE, self).__init__()
         encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
                                nn.ReLU(),
@@ -61,7 +61,7 @@ class EdgeNetVAE(nn.Module):
                                nn.ReLU(),
                                nn.Linear(big_dim, big_dim),
                                nn.ReLU(),
-                               nn.Linear(big_dim, input_dim)
+                               nn.Linear(big_dim, output_dim)
         )
         
         self.batchnorm = nn.BatchNorm1d(input_dim)
