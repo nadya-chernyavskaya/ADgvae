@@ -7,6 +7,32 @@ torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 multi_gpu = torch.cuda.device_count()>1
 
+@torch.no_grad()
+def test(model, loader, total, batch_size, loss_ftn_obj):
+    model.eval()
+
+    sum_loss = 0.
+    sum_loss_reco = 0.
+    sum_loss_kl = 0.
+    t = tqdm.tqdm(enumerate(loader),total=total/batch_size)
+
+        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=False)
+        if isinstance(batch_loss,tuple) :
+            batch_loss,batch_loss_reco,batch_loss_kl = batch_loss[0].item(),batch_loss[1].item(),batch_loss[2].item()
+            sum_loss += batch_loss
+            sum_loss_reco += batch_loss_reco
+            sum_loss_kl += batch_loss_kl
+            t.set_description('valid loss tot = %.7f,valid loss reco = %.7f,valid loss kl = %.7f' %(batch_loss,batch_loss_reco,batch_loss_kl))
+            t.refresh() # to show immediately the update
+        else:
+            batch_loss = batch_loss.item()
+            sum_loss += batch_loss
+            t.set_description('valid loss = %.7f' % batch_loss)
+            t.refresh() # to show immediately the update
+
+    return sum_loss / (i+1), sum_loss_reco / (i+1), sum_loss_kl / (i+1)
+
+
 
 def train(model, optimizer, loader, total, batch_size, loss_ftn_obj):
     model.train()

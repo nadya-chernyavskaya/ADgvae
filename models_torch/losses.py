@@ -51,7 +51,7 @@ class LossFunction:
         return self.mse(x,full_y)
 
     # Reconstruction + KL divergence losses
-    def vae_loss_mse_coord(self, x, y, mu, logvar):
+    def vae_loss_mse_coord(self, y,x, mu, logvar):
         MSE = self.mse_coordinates(y,x)
         # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
