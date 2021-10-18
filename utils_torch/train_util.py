@@ -29,7 +29,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj):
             sum_loss += batch_loss
             t.set_description('valid loss = %.7f' % batch_loss)
             t.refresh() # to show immediately the update
-
+        
     return sum_loss / (i+1), sum_loss_reco / (i+1), sum_loss_kl / (i+1)
 
 

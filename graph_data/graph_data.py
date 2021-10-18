@@ -153,4 +153,17 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             datas.append(data)
         return datas
         
+    def return_inmemory_data_no_loop(self):
+        datas = []
+        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(self.n_jets)]
+        pairs = [np.stack([[m, n] for (m, n) in itertools.product(range(n_part),range(n_part)) if m!=n]) for n_part in n_particles]
+        edge_index = [torch.tensor(pair, dtype=torch.long).t().contiguous() for pair in pairs]
+        # save particles as node attributes and target
+        x= [torch.tensor(self.pf_cands[i_evt], dtype=torch.float) for i_evt in range(self.n_jets)] 
+        u = [torch.tensor(self.jet_prop[i_evt,:], dtype=torch.float) for i_evt in range(self.n_jets)] 
+        datas = [Data(x=x_jet, edge_index=edge_index_jet,u=torch.unsqueeze(u_jet, 0)) for x_jet,edge_index_jet,u_jet in zip(x,edge_index,u)]
+        return datas
+        
+
+
         

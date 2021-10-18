@@ -131,6 +131,35 @@ def gen_in_out(model, loader, device):
     return input_fts, reco_fts
 
 
+@torch.no_grad()
+def eval_loss(model, loader, device):
+    #not finished yet
+    model.eval()
+    input_fts = []
+    reco_fts = []
+    reco_fts = []
+
+    for t in loader:
+        if isinstance(t, list):
+            for d in t:
+                input_fts.append(d.x)
+        else:
+            input_fts.append(t.x)
+            t.to(device)
+        out = model(t)
+        if isinstance(reco_out, tuple):
+            reco_out_fts,mu,log_var = reco_out[0],reco_out[1],reco_out[2] #always will be present as first 3
+
+        else : 
+            reco_out_fts = out
+        reco_fts.append(reco_out_fts.cpu().detach())
+
+    input_fts = torch.cat(input_fts)
+    reco_fts = torch.cat(reco_fts)
+
+    return input_fts, reco_fts
+
+
 def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
     input_fts, reco_fts = gen_in_out(model, loader, device)
     if 'mseconv' in feature_format:
