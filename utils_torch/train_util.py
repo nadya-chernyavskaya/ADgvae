@@ -7,6 +7,7 @@ torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 multi_gpu = torch.cuda.device_count()>1
 
+
 @torch.no_grad()
 def test(model, loader, total, batch_size, loss_ftn_obj):
     model.eval()

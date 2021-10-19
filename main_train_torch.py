@@ -45,7 +45,7 @@ multi_gpu = False #torch.cuda.device_count()>1
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n gen_part_n batch_n learning_rate min_lr patience proc generator')
 params = RunParameters(run_n=1, 
-                       n_epochs=80, 
+                       n_epochs=3, 
                        train_total_n=int(1e3 ),  #2e6 
                        valid_total_n=int(1e3), #1e5
                        gen_part_n=int(1e5), #1e5
@@ -156,6 +156,7 @@ loss = 999999
 
 train_loader, train_samples = dataloaders['train'], len(dataloaders['train'].dataset)
 valid_loader, valid_samples = dataloaders['train'], len(dataloaders['train'].dataset)
+test_loader, valid_samples = dataloaders['train']
 
 train_losses, valid_losses = {},{}
 for what in 'tot,reco,kl'.split(','):
@@ -166,7 +167,7 @@ modpath = osp.join(experiment.model_dir, settings.model_name+'.best.pth')
 if osp.isfile(modpath):
     model.load_state_dict(torch.load(modpath, map_location=device))
     model.to(device)
-    best_valid_loss,best_valid_loss_reco,best_valid_kl = test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+    best_valid_loss,best_valid_loss_reco,best_valid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
     print('Loaded model')
     print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
     if osp.isfile(osp.join(experiment.model_dir,'losses.pt')):
@@ -182,9 +183,10 @@ if multi_gpu:
 # Training loop
 stale_epochs = 0
 loss = best_valid_loss
+epoch=0
 for epoch in range(start_epoch, params.n_epochs):
     loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj)
-    valid_loss,valid_loss_reco,bvalid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+    valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
 
     scheduler.step(valid_loss)
     train_losses['tot'].append(loss)
@@ -213,15 +215,16 @@ for epoch in range(start_epoch, params.n_epochs):
         break
 
 # model training done
-train_epochs = list(range(epoch+1))
-early_stop_epoch = epoch - stale_epochs
-for what in 'tot,reco,kl'.split(','):
-    loss_curves(train_epochs, early_stop_epoch, train_losses[what], valid_losses[what], experiment.model_dir)
+if epoch!=0:
+    train_epochs = list(range(epoch+1))
+    early_stop_epoch = epoch - stale_epochs
+    for what in 'tot,reco,kl'.split(','):
+     plot.loss_curves(train_epochs, early_stop_epoch, train_losses[what], valid_losses[what], experiment.model_dir, fig_name=what)
 
 # load best model
 del model
 torch.cuda.empty_cache()
-model = get_model(settings.model_name, input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
+model =  getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
 model.load_state_dict(torch.load(modpath))
 if multi_gpu:
     model = DataParallel(model)
@@ -229,7 +232,8 @@ model.to(device)
 
 print('Plotting input/output reco')
 inverse_standardization = True
-plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'train'), args.plot_scale)
-plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), args.plot_scale)
-plot_reco_for_loader(model, test_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'test'), args.plot_scale)
+plot_scale = 'all_mseconv'
+plot.plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
+plot.plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
+plot.plot_reco_for_loader(model, test_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'test'), plot_scale)
 print('Completed')

@@ -170,7 +170,7 @@ def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fna
     plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
 
 
-def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path):
+def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path, fig_name=''):
     '''
         Graph our training and validation losses.
     '''
@@ -185,10 +185,10 @@ def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path):
     if early_stop_epoch != None:
         plt.axvline(x=early_stop_epoch, linestyle='--')
     plt.xlabel("Epochs")
-    plt.ylabel("Loss")
+    plt.ylabel("Loss {}".format(fig_name))
     plt.legend(['Train', 'Validation', 'Best model'])
-    plt.savefig(osp.join(save_path, 'loss_curves.pdf'))
-    plt.savefig(osp.join(save_path, 'loss_curves.png'))
+    plt.savefig(osp.join(save_path, 'loss_curves_{}.pdf'.format(fig_name)))
+    plt.savefig(osp.join(save_path, 'loss_curves_{}.png'.format(fig_name)))
     plt.close()
 
 
