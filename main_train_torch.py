@@ -43,15 +43,16 @@ multi_gpu = False #torch.cuda.device_count()>1
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- epochs train_total_n valid_total_n gen_part_n batch_n learning_rate min_lr proc generator')
+ n_epochs train_total_n valid_total_n gen_part_n batch_n learning_rate min_lr patience proc generator')
 params = RunParameters(run_n=1, 
-                       epochs=80, 
+                       n_epochs=80, 
                        train_total_n=int(1e3 ),  #2e6 
                        valid_total_n=int(1e3), #1e5
                        gen_part_n=int(1e5), #1e5
                        batch_n=256, 
                        learning_rate=0.001,
-                       min_lr=10e-6, 
+                       min_lr=10e-6,
+                       patience=4,
                        proc='QCD_side',
                        generator=0)  #run generator or not
 
@@ -60,8 +61,8 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'name  input_dim output_dim activation initializer big_dim hidden_dim beta loss_func')
-settings = Parameters(name = 'PN',
+Parameters = namedtuple('Settings', 'model_name  input_dim output_dim activation initializer big_dim hidden_dim beta loss_func')
+settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
                      output_dim=4,
                      activation='',#not yet set up
@@ -113,7 +114,7 @@ for f in 'E,pt':
     if f in dataset.pf_kin_names_model:
       minmax_idx.append(dataset.pf_kin_names_model.index(f))
 log_idx = minmax_idx
-scaler = prepr.standardize(in_memory_datas,minmax_idx=[3,4],log_idx=[3,4]) 
+scaler = prepr.standardize(in_memory_datas,minmax_idx=minmax_idx,log_idx=log_idx) 
 dataloaders = {
      'train':  DataLoader(in_memory_datas, batch_size=params.batch_n, shuffle=True)
 }
@@ -121,16 +122,17 @@ dataloaders = {
 #                       plotting input features after scaling
 # *******************************************************
 print('Plotting consistuents features after normalization')
-pf_cands_norm = torch.cat([torch.tensor(pf_cands[i], dtype=torch.float) for i in range(len(in_memory_datas))])
+pf_cands_norm = torch.cat([torch.tensor(in_memory_datas[i].x, dtype=torch.float) for i in range(len(in_memory_datas))])
 #Plot consistuents and jet features prepared for the graph! (after normalization)
-vande_plot.plot_features(pf_cands_norm.numpy(), dataset.pf_kin_names_model  ,'Jets Constituents Normalized' , params.proc, plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+vande_plot.plot_features(pf_cands_norm.numpy(), dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 
 # *******************************************************
 #                       build model
 # *******************************************************
-model = models.PlanarEdgeNetVAE(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
-model.to(device)
+model = getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
+
+
 print(model)
 summary.gnn_model_summary(model)
 with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
@@ -141,11 +143,93 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 #                       training options
 # *******************************************************
 optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=4, threshold=params.min_lr)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=params.patience, threshold=params.min_lr)
 loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device)
 
 # *******************************************************
 #                       train and save
 # *******************************************************
 print('>>> Launching Training')
+# Training loop
+stale_epochs = 0
+loss = 999999
 
+train_loader, train_samples = dataloaders['train'], len(dataloaders['train'].dataset)
+valid_loader, valid_samples = dataloaders['train'], len(dataloaders['train'].dataset)
+
+train_losses, valid_losses = {},{}
+for what in 'tot,reco,kl'.split(','):
+    train_losses[what] = []
+    valid_losses[what] = []
+start_epoch = 0
+modpath = osp.join(experiment.model_dir, settings.model_name+'.best.pth')
+if osp.isfile(modpath):
+    model.load_state_dict(torch.load(modpath, map_location=device))
+    model.to(device)
+    best_valid_loss,best_valid_loss_reco,best_valid_kl = test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+    print('Loaded model')
+    print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
+    if osp.isfile(osp.join(experiment.model_dir,'losses.pt')):
+        train_losses, valid_losses, start_epoch = torch.load(osp.join(experiment.model_dir,'losses.pt'))
+else:
+    print('Creating new model')
+    best_valid_loss = 9999999
+    model.to(device)
+if multi_gpu:
+    model = DataParallel(model)
+    model.to(device)
+
+# Training loop
+stale_epochs = 0
+loss = best_valid_loss
+for epoch in range(start_epoch, params.n_epochs):
+    loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj)
+    valid_loss,valid_loss_reco,bvalid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+
+    scheduler.step(valid_loss)
+    train_losses['tot'].append(loss)
+    valid_losses['tot'].append(valid_loss)
+    train_losses['reco'].append(loss_reco)
+    valid_losses['reco'].append(valid_loss_reco)
+    train_losses['kl'].append(loss_kl)
+    valid_losses['kl'].append(valid_loss_kl)
+    print('Epoch: {:02d}, Training Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, loss,loss_reco,loss_kl))
+    print('Epoch: {:02d}, Validation Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, valid_loss,valid_loss_reco,valid_loss_kl))
+
+    if valid_loss < best_valid_loss:
+        best_valid_loss = valid_loss
+        print('New best model saved to:',modpath)
+        if multi_gpu:
+            torch.save(model.module.state_dict(), modpath)
+        else:
+            torch.save(model.state_dict(), modpath)
+        torch.save((train_losses, valid_losses, epoch+1), osp.join(experiment.model_dir,'losses.pt'))
+        stale_epochs = 0
+    else:
+        stale_epochs += 1
+        print(f'Stale epoch: {stale_epochs}\nBest: {best_valid_loss}\nCurr: {valid_loss}')
+    if stale_epochs >= params.patience:
+        print('Early stopping after %i stale epochs'%params.patience)
+        break
+
+# model training done
+train_epochs = list(range(epoch+1))
+early_stop_epoch = epoch - stale_epochs
+for what in 'tot,reco,kl'.split(','):
+    loss_curves(train_epochs, early_stop_epoch, train_losses[what], valid_losses[what], experiment.model_dir)
+
+# load best model
+del model
+torch.cuda.empty_cache()
+model = get_model(settings.model_name, input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
+model.load_state_dict(torch.load(modpath))
+if multi_gpu:
+    model = DataParallel(model)
+model.to(device)
+
+print('Plotting input/output reco')
+inverse_standardization = True
+plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'train'), args.plot_scale)
+plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), args.plot_scale)
+plot_reco_for_loader(model, test_loader, device, scaler, inverse_standardization, model_fname, osp.join(fig_dir, 'reconstruction_post_train', 'test'), args.plot_scale)
+print('Completed')
