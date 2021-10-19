@@ -37,6 +37,7 @@ from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
 
 torch.manual_seed(0)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+print('Running on the device ',device)
 multi_gpu = False #torch.cuda.device_count()>1
 
 # ********************************************************
@@ -45,7 +46,7 @@ multi_gpu = False #torch.cuda.device_count()>1
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n gen_part_n batch_n learning_rate min_lr patience proc generator')
 params = RunParameters(run_n=1, 
-                       n_epochs=3, 
+                       n_epochs=80, 
                        train_total_n=int(1e3 ),  #2e6 
                        valid_total_n=int(1e3), #1e5
                        gen_part_n=int(1e5), #1e5
@@ -156,7 +157,7 @@ loss = 999999
 
 train_loader, train_samples = dataloaders['train'], len(dataloaders['train'].dataset)
 valid_loader, valid_samples = dataloaders['train'], len(dataloaders['train'].dataset)
-test_loader, valid_samples = dataloaders['train']
+test_loader = dataloaders['train']
 
 train_losses, valid_losses = {},{}
 for what in 'tot,reco,kl'.split(','):

@@ -15,6 +15,24 @@ def get_present_constit(x,n):
 def concat_features(feats_1,feats_2):
     return np.hstack((feats_1[:,:],feats_2[:,:]))
 
+
+class PairJetsData(Data):
+    def __init__(self, edge_index_1=None, x_1=None, edge_index_2=None, x_2=None):
+        super().__init__()
+        self.edge_index_1 = edge_index_1
+        self.x_1 = x_1
+        self.edge_index_2 = edge_index_2
+        self.x_2 = x_2
+
+    def __inc__(self, key, value, *args, **kwargs):
+        if key == 'edge_index_1':
+            return self.x_1.size(0)
+        if key == 'edge_index_2':
+            return self.x_2.size(0)
+        else:
+            return super().__inc__(key, value, *args, **kwargs)
+        
+
 class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not just pytroch)
     def __init__(self, root, transform=None, pre_transform=None,
                  n_events=-1,n_jets=10e3, side_reg=1, proc_type='==0', features='xyzeptep',n_proc=1):
@@ -104,7 +122,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         pf_out_list = []
         jet_prop_list = []
 
-        for i_j in range(2): #each event has 2 jets
+        for i_j in range(2): #each event has 2 jets # in principle probably good to check and discard this event otherwise
             pf_xyze = jet_const[i_j]
             pf_ptep = self.xyze_to_ptep(pf_xyze)
             n_particles = np.sum(pf_xyze[:,:,self.pf_kin_names.index('E')]!=0,axis=1) #E is 3rd 
@@ -145,7 +163,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
     
     def return_inmemory_data(self):
         datas = []
-        for i_evt in range(self.n_jets):
+        for i_evt in range(2*self.n_jets): #the way it is written now it is only taking a leading jet
             n_particles = self.pf_cands[i_evt].shape[0]
             pairs = np.stack([[m, n] for (m, n) in itertools.product(range(n_particles),range(n_particles)) if m!=n])
             edge_index = torch.tensor(pairs, dtype=torch.long)
@@ -159,7 +177,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         
     def return_inmemory_data_no_loop(self):
         datas = []
-        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(self.n_jets)]
+        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(2*self.n_jets)]
         pairs = [np.stack([[m, n] for (m, n) in itertools.product(range(n_part),range(n_part)) if m!=n]) for n_part in n_particles]
         edge_index = [torch.tensor(pair, dtype=torch.long).t().contiguous() for pair in pairs]
         # save particles as node attributes and target
@@ -169,5 +187,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         return datas
         
 
-
+    def return_jets_pair_data(self):
+        in_memory_datas = return_inmemory_data_no_loop(self)
+        datas = [PairJetsData(in_memory_datas[i_evt].edge_index, in_memory_datas[i_evt].x, in_memory_datas[i_evt+1].edge_index, in_memory_datas[i_evt+1].x) for i_evt in range(0,self.n_jets,2)]
+        return datas
         
