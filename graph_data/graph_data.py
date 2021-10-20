@@ -110,7 +110,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         j1Pt_mask = (jet_kin[:,self.jet_kin_names.index('j1Pt')] > self.jPt)
         j2Pt_mask = (jet_kin[:,self.jet_kin_names.index('j2Pt')] > self.jPt)
         proc_mask = eval('truth[:,0]{}'.format(self.proc_type))
-        full_mask = j1Pt_mask & j2Pt_mask & proc_mask
+        full_mask = j1Pt_mask & j2Pt_mask & proc_mask #this also checks that there will be always two jets
         if self.side_reg : 
             full_mask = full_mask & (jet_kin[:,self.jet_kin_names.index('DeltaEtaJJ')] > self.dEtaJJ)
         else : 
@@ -125,7 +125,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         pf_out_list = []
         jet_prop_list = []
 
-        for i_j in range(2): #each event has 2 jets # in principle probably good to check and discard this event otherwise
+        for i_j in range(2): 
             pf_xyze = jet_const[i_j]
             pf_ptep = self.xyze_to_ptep(pf_xyze)
             n_particles = np.sum(pf_xyze[:,:,self.pf_kin_names.index('E')]!=0,axis=1) #E is 3rd 
@@ -141,11 +141,19 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
                 jet_prop[:,i_f+1] = jet_kin[:,self.jet_kin_names.index('j{}{}'.format(i_j+1,f_name))]
             jet_prop[:,n_jet_feats-1] = truth[:,0]
             jet_prop_list.append(jet_prop)
+
+
             
         self.pf_kin_names_model = 'px,py,pz,E,pt,eta,phi'.split(',')
         self.jet_kin_names_model = 'N_constituents,M,Pt,Eta,Phi,truth'.split(',')
+
+      # pf_interleave = pf_out_list[0] + pf_out_list[1]
+      #  pf_interleave[::2] = pf_out_list[0]
+      #  pf_interleave[1::2] =  pf_out_list[1]
+        return list(itertools.chain(*zip(pf_out_list[0] , pf_out_list[1]))), list(itertools.chain(*zip(jet_prop_list[0] , jet_prop_list[1])))
+        #or list(itertools.chain(*zip(pf_out_list[0] , pf_out_list[1])))
         #return list of pf particles, and list of global jet properties
-        return sum(pf_out_list, []),np.vstack((jet_prop_list[0],jet_prop_list[1]))      
+        #return sum(pf_out_list, []),np.vstack((jet_prop_list[0],jet_prop_list[1]))      
                  
 
     def get(self,idx):
@@ -166,28 +174,26 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
     
     def return_inmemory_data(self):
         datas = []
-        for i_evt in range(2*self.n_jets): #the way it is written now it is only taking a leading jet
+        n_jets = len(self.pf_cands)
+        for i_evt in range(n_jets): 
             n_particles = self.pf_cands[i_evt].shape[0]
-            #pairs = np.stack([[m, n] for (m, n) in itertools.product(range(n_particles),range(n_particles)) if m!=n])
-            #edge_index = torch.tensor(pairs, dtype=torch.long)
-            #edge_index=edge_index.t().contiguous()
-            # save particles as node attributes and target
             adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
             edge_index,_ = torch_geometric.utils.from_scipy_sparse_matrix(adj)          
             x = torch.tensor(self.pf_cands[i_evt], dtype=torch.float)
-            u = torch.tensor(self.jet_prop[i_evt,:], dtype=torch.float)
+            u = torch.tensor(self.jet_prop[i_evt], dtype=torch.float)
             data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
             datas.append(data)
         return datas
         
     def return_inmemory_data_no_loop(self):
         datas = []
-        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(2*self.n_jets)]
+        n_jets = len(self.pf_cands)
+        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(n_jets)]
         adj = [csr_matrix(np.ones((n_part,n_part)) - np.eye(n_part)) for n_part in n_particles]
         edge_index = [from_scipy_sparse_matrix(a)[0] for a in adj] 
         # save particles as node attributes and target
-        x= [torch.tensor(self.pf_cands[i_evt], dtype=torch.float) for i_evt in range(self.n_jets)] 
-        u = [torch.tensor(self.jet_prop[i_evt,:], dtype=torch.float) for i_evt in range(self.n_jets)] 
+        x= [torch.tensor(self.pf_cands[i_evt], dtype=torch.float) for i_evt in range(n_jets)] 
+        u = [torch.tensor(self.jet_prop[i_evt], dtype=torch.float) for i_evt in range(n_jets)] 
         datas = [Data(x=x_jet, edge_index=edge_index_jet,u=torch.unsqueeze(u_jet, 0)) for x_jet,edge_index_jet,u_jet in zip(x,edge_index,u)]
         return datas
         
