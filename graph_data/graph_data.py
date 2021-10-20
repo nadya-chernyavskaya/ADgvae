@@ -7,7 +7,10 @@ import os.path as osp
 import multiprocessing
 from pathlib import Path
 import h5py
+from torch_geometric.utils import from_scipy_sparse_matrix
 from torch_geometric.data import Dataset, Data, Batch
+import scipy
+from scipy.sparse import csr_matrix
 
 def get_present_constit(x,n):
     return x[0:n,:] 
@@ -165,10 +168,12 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         datas = []
         for i_evt in range(2*self.n_jets): #the way it is written now it is only taking a leading jet
             n_particles = self.pf_cands[i_evt].shape[0]
-            pairs = np.stack([[m, n] for (m, n) in itertools.product(range(n_particles),range(n_particles)) if m!=n])
-            edge_index = torch.tensor(pairs, dtype=torch.long)
-            edge_index=edge_index.t().contiguous()
+            #pairs = np.stack([[m, n] for (m, n) in itertools.product(range(n_particles),range(n_particles)) if m!=n])
+            #edge_index = torch.tensor(pairs, dtype=torch.long)
+            #edge_index=edge_index.t().contiguous()
             # save particles as node attributes and target
+            adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
+            edge_index,_ = torch_geometric.utils.from_scipy_sparse_matrix(adj)          
             x = torch.tensor(self.pf_cands[i_evt], dtype=torch.float)
             u = torch.tensor(self.jet_prop[i_evt,:], dtype=torch.float)
             data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
@@ -178,8 +183,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
     def return_inmemory_data_no_loop(self):
         datas = []
         n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(2*self.n_jets)]
-        pairs = [np.stack([[m, n] for (m, n) in itertools.product(range(n_part),range(n_part)) if m!=n]) for n_part in n_particles]
-        edge_index = [torch.tensor(pair, dtype=torch.long).t().contiguous() for pair in pairs]
+        adj = [csr_matrix(np.ones((n_part,n_part)) - np.eye(n_part)) for n_part in n_particles]
+        edge_index = [from_scipy_sparse_matrix(a)[0] for a in adj] 
         # save particles as node attributes and target
         x= [torch.tensor(self.pf_cands[i_evt], dtype=torch.float) for i_evt in range(self.n_jets)] 
         u = [torch.tensor(self.jet_prop[i_evt,:], dtype=torch.float) for i_evt in range(self.n_jets)] 
