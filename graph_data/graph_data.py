@@ -60,8 +60,8 @@ class PairJetsData(Data):
         
 
 class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not just pytroch)
-    def __init__(self, root, transform=None, pre_transform=None, input_path = None, train_not_test=None,
-                 n_events=-1,n_jets_merge=10e3, side_reg=1, proc_type='==0', features='xyzeptep',n_proc=1):
+    def __init__(self, root, transform=None, pre_transform=None, input_path = None, train_not_test=1,
+                 n_events=-1,n_events_merge=1e5, side_reg=1, proc_type='==0', features='xyzeptep',n_proc=1):
         """
         Initialize parameters of graph dataset
         Args:
@@ -74,10 +74,10 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             features (str): (px, py, pz) or relative (pt, eta, phi)
         """
         self.input_path = input_path if input_path is not None else '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
-        self.train_not_test = train_not_test if train_not_test is not None else 1
-        max_events = int(1e6)
+        self.train_not_test = train_not_test 
+        max_events = int(5e6)
         self.n_events = max_events if n_events==-1 else n_events
-        self.n_jets_merge = int(n_jets_merge)
+        self.n_events_merge = int(n_events_merge)
         self.side_reg = side_reg
         self.proc_type = proc_type
         self.n_proc = n_proc
@@ -167,9 +167,9 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             full_mask = full_mask & (jet_kin[:,self.jet_kin_names.index('DeltaEtaJJ')] < self.dEtaJJ)
 
         #Apply mask on jet kinematics, truth and pf cands
-        jet_kin = jet_kin[full_mask][0:self.n_jets_merge]
-        truth = truth[full_mask][0:self.n_jets_merge]
-        jet_const = [np.array(in_file["jet1_PFCands"])[full_mask][0:self.n_jets_merge],np.array(in_file["jet2_PFCands"])[full_mask][0:self.n_jets_merge]]
+        jet_kin = jet_kin[full_mask][0:self.n_events_merge]
+        truth = truth[full_mask][0:self.n_events_merge]
+        jet_const = [np.array(in_file["jet1_PFCands"])[full_mask][0:self.n_events_merge],np.array(in_file["jet2_PFCands"])[full_mask][0:self.n_events_merge]]
         ###############                
 
         pf_out_list = []
@@ -214,7 +214,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
         jet_kin = np.array(in_file["jet_kinematics"])[k * self.chunk_size:(k + 1) * self.chunk_size]
         truth = np.array(in_file["truth_label"])[k * self.chunk_size:(k + 1) * self.chunk_size]
-        jet_const = [np.array(in_file["jet1_PFCands"])[k * self.chunk_size:(k + 1) * self.chunk_size],np.array(in_file["jet2_PFCands"])[k * self.chunk_size:(k + 1) * self.chunk_size]
+        jet_const = [np.array(in_file["jet1_PFCands"])[k * self.chunk_size:(k + 1) * self.chunk_size],np.array(in_file["jet2_PFCands"])[k * self.chunk_size:(k + 1) * self.chunk_size]]
 
         j1Pt_mask = (jet_kin[:,self.jet_kin_names.index('j1Pt')] > self.jPt)
         j2Pt_mask = (jet_kin[:,self.jet_kin_names.index('j2Pt')] > self.jPt)
@@ -257,19 +257,13 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         pf_cands = list(itertools.chain(*zip(pf_out_list[0] , pf_out_list[1])))
         jet_prop = list(itertools.chain(*zip(jet_prop_list[0] , jet_prop_list[1])))
 
-
-        len_file_chunks = len(pf_cands)//self.n_events_merge
-        last_chunk = len(pf_cands) % self.n_events_merge
-        for i_c in range(len_file_chunks):
-            for i_evt in range(ib*batch_size:(ib+1)*batch_size)
-
         datas = []
         n_jets = len(pf_cands)
         for i_evt in range(n_jets): 
             event_idx = k*self.chunk_size + i_evt
             n_particles = pf_cands[i_evt].shape[0]
             adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
-            edge_index,_ = torch_geometric.utils.from_scipy_sparse_matrix(adj)          
+            edge_index,_ = from_scipy_sparse_matrix(adj)          
             x = torch.tensor(pf_cands[i_evt], dtype=torch.float)
             u = torch.tensor(jet_prop[i_evt], dtype=torch.float)
             data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
