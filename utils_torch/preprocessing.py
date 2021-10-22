@@ -18,6 +18,8 @@ def standardize(train_dataset, valid_dataset=None, test_dataset=None,minmax_idx 
     scaler.fit(train_x)
     if (valid_dataset is not None) and (test_dataset is not None) :
         datasets = (train_dataset, valid_dataset, test_dataset)
+    elif (valid_dataset is not None) and (test_dataset is None) :
+        datasets = (train_dataset, valid_dataset)
     else:
         datasets = [train_dataset]
     for dataset in datasets:

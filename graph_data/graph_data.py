@@ -89,8 +89,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.jet_kin_names = ['mJJ', 'DeltaEtaJJ', 'j1Pt', 'j1Eta', 'j1Phi',\
                                         'j1M', 'j2Pt', 'j2Eta', 'j2Phi', 'j2M', 'j3Pt', 'j3Eta', 'j3Phi', 'j3M']
         self.pf_kin_names = 'px,py,pz,E,'.split(',')
-        self.pf_kin_names_model = ''
-        self.jet_kin_names_model = ''
+        self.pf_kin_names_model = 'px,py,pz,E,pt,eta,phi'.split(',')
+        self.jet_kin_names_model = 'N_constituents,M,Pt,Eta,Phi,truth'.split(',')
       #  self.pf_cands, self.jet_prop = self.read_events()   
 
         

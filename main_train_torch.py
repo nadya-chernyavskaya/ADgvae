@@ -31,7 +31,7 @@ plt.style.use('/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigsty
 
 import torch
 import torch.nn as nn
-from torch.utils.data import random_split
+from torch.utils.data import random_split, ConcatDataset
 from torch_geometric.data import Data, DataLoader, DataListLoader
 from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
 
@@ -44,25 +44,26 @@ multi_gpu = False #torch.cuda.device_count()>1
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience proc generator')
-params = RunParameters(run_n=2, 
+ n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience generator')
+params = RunParameters(run_n=4, 
                        n_epochs=80, 
-                       train_total_n=int(1e3 ),  #2e6 
-                       valid_total_n=int(1e3), #1e5
+                       train_total_n=int(3e5 ),  #2e6 
+                       valid_total_n=int(1e5), #1e5
                        gen_part_n=int(1e5), #1e5
                        proc='QCD_side',
                        train_not_test=1, #not yet used properly
-                       batch_n=256, 
+                       batch_n=200, 
                        learning_rate=0.001,
                        min_lr=10e-6,
                        patience=4,
                        generator=0)  #run generator or not
 
+#Parameters for the graph dataset
 if 'QCD_side' in params.proc:
     side_reg = 1
     proc_type='==0'
-input_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/output_models/pytroch/'
-root_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/processed/'
+input_path = '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
+root_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/'
     
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 
@@ -93,45 +94,79 @@ with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='u
 # ********************************************************
 print('>>> Preparing data')
 start_time = time.time()
-dataset = graph_data.GraphDataset(root=data_dir,n_jets=params.train_total_n)
+#taking already processed files
+gdata = graph_data.GraphDataset(root=root_path,input_path = input_path)
 # train (generator)
-if params.generator:
+#if params.generator:
     #to be filled
-    print('Not yet prepared')
-else : 
-    in_memory_datas = dataset.return_inmemory_data_no_loop() 
+#    print('Not yet prepared')
+#else : 
+    #in_memory_datas = dataset.return_inmemory_data_no_loop() 
+
+#in_memory_datas = [data for data in chain.from_iterable(gdata)]
+#end_time = time.time()
+#print(f"Runtime of the data preparation is {end_time - start_time}")
+#start_time = time.time()
+
+#random.Random(0).shuffle(in_memory_datas)
+#in_memory_datas = in_memory_datas[:params.train_total_n]
+#print(f"Total number of events in the memory {len(in_memory_datas)}")
+
+#fulllen = len(in_memory_datas)
+#valid_frac = int(params.valid_total_n/(params.train_total_n+params.valid_total_n))
+#train_len = int((1.-valid_frac) * fulllen)
+#tv_len = int(valid_frac * fulllen)
+#train_dataset = in_memory_datas[:train_len]
+#valid_dataset = in_memory_datas[train_len:train_len + tv_len]
+
+train_dataset = gdata[0]
+valid_dataset = gdata[1]
+train_samples = len(train_dataset)
+valid_samples = len(valid_dataset)
+print(f"Total number of train/valid events in the memory {train_samples,valid_samples}")
+
+num_workers = 5
+train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=True)
+valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
+
 # *******************************************************
 #                       plotting input features before scaling
 # *******************************************************
+
 print('Plotting consistuents features before normalization')
 fig_dir = os.path.join(experiment.model_dir, 'figs/')
 pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
+len_plot = int(min(1e4,len(train_dataset)))
+pf_cands = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
+#jet_prop = [train_dataset[i].u for i in range(len_plot)] #TO DO : not working, need to fix
+#Plot consistuents and jet features prepared for the graph! (after normalization)
+vande_plot.plot_features(pf_cands.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+#vande_plot.plot_features(np.array(jet_prop), gdata.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
-pf_cands,jet_prop = dataset.pf_cands,dataset.jet_prop
-pf_cands_t = torch.cat([torch.tensor(pf_cands[i], dtype=torch.float) for i in range(len(pf_cands))])
+#pf_cands,jet_prop = dataset.pf_cands,dataset.jet_prop
+#pf_cands_t = torch.cat([torch.tensor(pf_cands[i], dtype=torch.float) for i in range(len(pf_cands))])
 #Plot consistuents and jet features prepared for the graph! (but before any normalization)
-vande_plot.plot_features(pf_cands_t.numpy(), dataset.pf_kin_names_model ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-vande_plot.plot_features(jet_prop, dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+#vande_plot.plot_features(pf_cands_t.numpy(), dataset.pf_kin_names_model ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+#vande_plot.plot_features(jet_prop, dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 # *******************************************************
 #                       scaling input features 
 # *******************************************************
 minmax_idx = []
-for f in 'E,pt':
-    if f in dataset.pf_kin_names_model:
-      minmax_idx.append(dataset.pf_kin_names_model.index(f))
+for f in 'E,pt'.split(','):
+    if f in gdata.pf_kin_names_model:
+        minmax_idx.append(gdata.pf_kin_names_model.index(f))
 log_idx = minmax_idx
-scaler = prepr.standardize(in_memory_datas,minmax_idx=minmax_idx,log_idx=log_idx) 
-dataloaders = {
-     'train':  DataLoader(in_memory_datas, batch_size=params.batch_n, shuffle=True)
-}
+scaler = prepr.standardize(train_dataset, valid_dataset=valid_dataset,minmax_idx=minmax_idx,log_idx=log_idx)
+####TO DO : need to save the scaler
+
 # *******************************************************
 #                       plotting input features after scaling
 # *******************************************************
 print('Plotting consistuents features after normalization')
-pf_cands_norm = torch.cat([torch.tensor(in_memory_datas[i].x, dtype=torch.float) for i in range(len(in_memory_datas))])
+pf_cands_norm = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
 #Plot consistuents and jet features prepared for the graph! (after normalization)
-vande_plot.plot_features(pf_cands_norm.numpy(), dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+vande_plot.plot_features(pf_cands_norm.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 
 # *******************************************************
@@ -161,9 +196,6 @@ print('>>> Launching Training')
 stale_epochs = 0
 loss = 999999
 
-train_loader, train_samples = dataloaders['train'], len(dataloaders['train'].dataset)
-valid_loader, valid_samples = dataloaders['train'], len(dataloaders['train'].dataset)
-test_loader = dataloaders['train']
 
 train_losses, valid_losses = {},{}
 for what in 'tot,reco,kl'.split(','):
@@ -221,6 +253,9 @@ for epoch in range(start_epoch, params.n_epochs):
         print('Early stopping after %i stale epochs'%params.patience)
         break
 
+end_time = time.time()
+print(f"Runtime of the training is {end_time - start_time}")
+
 # model training done
 if epoch!=0:
     train_epochs = list(range(epoch+1))
@@ -242,5 +277,4 @@ inverse_standardization = True
 plot_scale = 'all_mseconv'
 plot.plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
 plot.plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
-plot.plot_reco_for_loader(model, test_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'test'), plot_scale)
 print('Completed')
