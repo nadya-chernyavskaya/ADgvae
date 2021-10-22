@@ -44,19 +44,26 @@ multi_gpu = False #torch.cuda.device_count()>1
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- n_epochs train_total_n valid_total_n gen_part_n batch_n learning_rate min_lr patience proc generator')
-params = RunParameters(run_n=1, 
+ n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience proc generator')
+params = RunParameters(run_n=2, 
                        n_epochs=80, 
                        train_total_n=int(1e3 ),  #2e6 
                        valid_total_n=int(1e3), #1e5
                        gen_part_n=int(1e5), #1e5
+                       proc='QCD_side',
+                       train_not_test=1, #not yet used properly
                        batch_n=256, 
                        learning_rate=0.001,
                        min_lr=10e-6,
                        patience=4,
-                       proc='QCD_side',
                        generator=0)  #run generator or not
 
+if 'QCD_side' in params.proc:
+    side_reg = 1
+    proc_type='==0'
+input_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/output_models/pytroch/'
+root_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/processed/'
+    
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 
 # ********************************************************
@@ -86,7 +93,6 @@ with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='u
 # ********************************************************
 print('>>> Preparing data')
 start_time = time.time()
-data_dir = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/output_models/pytroch/'
 dataset = graph_data.GraphDataset(root=data_dir,n_jets=params.train_total_n)
 # train (generator)
 if params.generator:

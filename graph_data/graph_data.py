@@ -60,7 +60,7 @@ class PairJetsData(Data):
         
 
 class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not just pytroch)
-    def __init__(self, root, transform=None, pre_transform=None, input_path = None, train_not_test=1,
+    def __init__(self, root, transform=None, pre_transform=None, process_on_fly=False,input_path = None, train_not_test=1,
                  n_events=-1,n_events_merge=1e5, side_reg=1, proc_type='==0', features='xyzeptep',n_proc=1):
         """
         Initialize parameters of graph dataset
@@ -73,6 +73,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             n_proc (int): number of processes to split into
             features (str): (px, py, pz) or relative (pt, eta, phi)
         """
+        self.process_on_fly = process_on_fly
         self.input_path = input_path if input_path is not None else '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
         self.train_not_test = train_not_test 
         max_events = int(5e6)
@@ -116,17 +117,21 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
     @property
     def processed_file_names(self):
+        #this has to be rewritten to have both testings files and training files
         """
         Returns a list of all the files in the processed files directory
         """
-        proc_list = glob.glob(osp.join(self.processed_dir, 'data*.pt'))
+        proc_list = glob.glob(osp.join(self.processed_dir, 'BB*.pt'))
         return_list = list(map(osp.basename, proc_list))
         return return_list
 
 
     def len(self):
         return len(self.processed_file_names)
-        
+
+  #  def len(self):
+  #      return self.n_events  
+
     def download(self):
         # Download to `self.raw_dir`.
         pass  
@@ -159,8 +164,10 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
         j1Pt_mask = (jet_kin[:,self.jet_kin_names.index('j1Pt')] > self.jPt)
         j2Pt_mask = (jet_kin[:,self.jet_kin_names.index('j2Pt')] > self.jPt)
-        proc_mask = eval('truth[:,0]{}'.format(self.proc_type))
-        full_mask = j1Pt_mask & j2Pt_mask & proc_mask #this also checks that there will be always two jets
+        full_mask = j1Pt_mask & j2Pt_mask #this also checks that there will be always two jets
+        if proc_type is not None :
+            proc_mask = eval('truth[:,0]{}'.format(self.proc_type))
+            full_mask = full_mask & proc_mask 
         if self.side_reg : 
             full_mask = full_mask & (jet_kin[:,self.jet_kin_names.index('DeltaEtaJJ')] > self.dEtaJJ)
         else : 
@@ -218,8 +225,11 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
         j1Pt_mask = (jet_kin[:,self.jet_kin_names.index('j1Pt')] > self.jPt)
         j2Pt_mask = (jet_kin[:,self.jet_kin_names.index('j2Pt')] > self.jPt)
-        proc_mask = eval('truth[:,0]{}'.format(self.proc_type))
-        full_mask = j1Pt_mask & j2Pt_mask & proc_mask #this also checks that there will be always two jets
+        full_mask = j1Pt_mask & j2Pt_mask #this also checks that there will be always two jets
+        if proc_type is not None :
+            proc_mask = eval('truth[:,0]{}'.format(self.proc_type))
+            full_mask = full_mask & proc_mask 
+
         if self.side_reg : 
             full_mask = full_mask & (jet_kin[:,self.jet_kin_names.index('DeltaEtaJJ')] > self.dEtaJJ)
         else : 
@@ -283,6 +293,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         """
         Split processing of dataset across multiple processes.
         """
+        
         for raw_path in self.raw_paths: #loop over raw files
             #pars = []
             for k in range(self.n_proc):
@@ -296,11 +307,19 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
 
     def get(self, idx):
-        """ Used by PyTorch DataSet class """
+        """ Used by PyTorch DataSet class """    
         p = osp.join(self.processed_dir, self.processed_file_names[idx])
-        data = torch.load(p)
-        return data
+        data = torch.load(p)            
+        return data 
 
+    def get_testing(self, idx):
+        """ Used by PyTorch DataSet class """
+        tot_num_files = self.n_events // self.n_events_merge #+ 1 if (self.n_events % self.n_events_merge) 
+        for i_f in  tot_num_files:       
+            p = osp.join(self.processed_dir, self.processed_file_names[i_f])
+            data = torch.load(p)
+            yield data[idx]
+        #return data
  
     def _process(self):
         """
