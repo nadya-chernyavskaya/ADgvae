@@ -44,8 +44,8 @@ multi_gpu = False #torch.cuda.device_count()>1
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience generator')
-params = RunParameters(run_n=4, 
+ n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience plotting generator')
+params = RunParameters(run_n=5, 
                        n_epochs=80, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -56,6 +56,7 @@ params = RunParameters(run_n=4,
                        learning_rate=0.001,
                        min_lr=10e-6,
                        patience=4,
+                       plotting=False,
                        generator=0)  #run generator or not
 
 #Parameters for the graph dataset
@@ -74,7 +75,7 @@ Parameters = namedtuple('Settings', 'model_name  input_dim output_dim activation
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
                      output_dim=4,
-                     activation='',#not yet set up
+                     activation=nn.LeakyReLU(0.1),
                      initializer='',#not yet set up 
                      big_dim=32,
                      hidden_dim=2,
@@ -132,22 +133,16 @@ valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=
 # *******************************************************
 #                       plotting input features before scaling
 # *******************************************************
-
-print('Plotting consistuents features before normalization')
-fig_dir = os.path.join(experiment.model_dir, 'figs/')
-pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
-len_plot = int(min(1e4,len(train_dataset)))
-pf_cands = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
-#jet_prop = [train_dataset[i].u for i in range(len_plot)] #TO DO : not working, need to fix
-#Plot consistuents and jet features prepared for the graph! (after normalization)
-vande_plot.plot_features(pf_cands.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-#vande_plot.plot_features(np.array(jet_prop), gdata.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-
-#pf_cands,jet_prop = dataset.pf_cands,dataset.jet_prop
-#pf_cands_t = torch.cat([torch.tensor(pf_cands[i], dtype=torch.float) for i in range(len(pf_cands))])
-#Plot consistuents and jet features prepared for the graph! (but before any normalization)
-#vande_plot.plot_features(pf_cands_t.numpy(), dataset.pf_kin_names_model ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-#vande_plot.plot_features(jet_prop, dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+if params.plotting:
+    print('Plotting consistuents features before normalization')
+    fig_dir = os.path.join(experiment.model_dir, 'figs/')
+    pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
+    len_plot = int(min(1e4,len(train_dataset)))
+    pf_cands = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
+    #jet_prop = [train_dataset[i].u for i in range(len_plot)] #TO DO : not working, need to fix
+    #Plot consistuents and jet features prepared for the graph! (after normalization)
+    vande_plot.plot_features(pf_cands.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+    #vande_plot.plot_features(np.array(jet_prop), gdata.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 # *******************************************************
 #                       scaling input features 
@@ -163,16 +158,17 @@ scaler = prepr.standardize(train_dataset, valid_dataset=valid_dataset,minmax_idx
 # *******************************************************
 #                       plotting input features after scaling
 # *******************************************************
-print('Plotting consistuents features after normalization')
-pf_cands_norm = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
-#Plot consistuents and jet features prepared for the graph! (after normalization)
-vande_plot.plot_features(pf_cands_norm.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+if params.plotting:
+    print('Plotting consistuents features after normalization')
+    pf_cands_norm = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
+    #Plot consistuents and jet features prepared for the graph! (after normalization)
+    vande_plot.plot_features(pf_cands_norm.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 
 # *******************************************************
 #                       build model
 # *******************************************************
-model = getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
+model = getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim, activation=settings.activation)
 
 
 print(model)

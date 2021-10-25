@@ -18,7 +18,7 @@ def xyze_to_ptetaphi_torch(y):
 from px, py, pz, E to pt,eta, phi
     '''
     PX_idx, PY_idx, PZ_idx, E_idx = range(4)
-    pt = torch.sqrt(torch.pow(y[:,PX_idx], 2) + torch.pow(y[:,PY_idx], 2)) 
+    pt =torch.sqrt(torch.pow(y[:,PX_idx], 2) + torch.pow(y[:,PY_idx], 2)) 
     eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))
     phi = torch.atan2(y[:,PY_idx], y[:,PX_idx])
 
@@ -47,7 +47,7 @@ class LossFunction:
         #From px,py,pz,E get pt, eta, phi (do not predict them)
         #x is px,py,pz,E,pt,eta,phi
         #y is px,py,pz,E
-        full_y = xyze_to_ptetaphi_torch(y)
+        full_y = xyze_to_ptetaphi_torch(y)#what about log pt
         return self.mse(x,full_y)
 
     # Reconstruction + KL divergence losses

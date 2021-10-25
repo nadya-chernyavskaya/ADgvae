@@ -26,3 +26,6 @@ def standardize(train_dataset, valid_dataset=None, test_dataset=None,minmax_idx 
         for d in dataset:
             d.x[:,:] = scaler.transform(d.x)
     return scaler
+
+
+def basic_standarize(train_dataset,log_idx=None):

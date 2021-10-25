@@ -88,23 +88,23 @@ class EdgeNetVAE(nn.Module):
 
 
 class PlanarEdgeNetVAE(nn.Module):
-    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean'):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean', activation=nn.ReLU()):
         super(PlanarEdgeNetVAE, self).__init__()
 
         self.hidden_dim = hidden_dim
         encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
-                               nn.ReLU(),
+                               activation,
                                nn.Linear(big_dim, big_dim),
-                               nn.ReLU()
+                               activation
         )
         
         self.mu_layer = nn.Linear(big_dim, hidden_dim)
         self.var_layer = nn.Linear(big_dim, hidden_dim)
         
         decoder_nn = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
-                               nn.ReLU(),
+                               activation,
                                nn.Linear(big_dim, big_dim),
-                               nn.ReLU(),
+                               activation,
                                nn.Linear(big_dim, output_dim)
         )
         

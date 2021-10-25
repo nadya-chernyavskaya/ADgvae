@@ -1,6 +1,12 @@
 import torch
 import numpy as np
 
+class BasicStandardizer:
+    def __init__(self):
+        self.std_gev = 20
+        self.std_coord = 3
+
+
 class Standardizer:
     def __init__(self,minmax_idx=None,  log_idx=None):
         self.mean = None
