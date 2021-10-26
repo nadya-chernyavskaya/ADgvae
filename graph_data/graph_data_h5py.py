@@ -262,20 +262,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.len_in_files = self.strides[1:]
         self.strides = np.cumsum(self.strides)
 
-    def get_pfcands_jet_prop_old(self, n_evt):
-        file_idx = 0 #takes first file only
-        if n_evt > self.strides[file_idx+1]:
-            n_evt = self.strides[file_idx+1]
-        with h5py.File(self.processed_paths[file_idx],'r') as f:
-            n_particles = f['jet_props'][0:n_evt,0].astype(int)
-            pf_cands = np.array(f['pf_cands'][0:n_evt,:,:])
-            jet_prop = np.array(f['jet_props'][0:n_evt,:])
-            if self.scaler is not None :
-                pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
-                pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
-            pf_cands = list(map(get_present_constit,pf_cands,n_particles))
-        return pf_cands, jet_prop 
-
 
     def get_pfcands_jet_prop(self):
         n_start = self.current_chunk_idx*self.data_chunk_size
@@ -319,7 +305,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             self.current_in_file.close()
             self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
             self.current_chunk_idx = 0 #reset current chunk index
-        if idx_in_file > (self.current_chunk_idx+1)*self.data_chunk_size:
+            self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
+        if (idx_in_file > (self.current_chunk_idx+1)*self.data_chunk_size):
             self.current_chunk_idx+=1
             self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
         idx_in_chunk =  idx_in_file // (self.current_chunk_idx*self.data_chunk_size)
