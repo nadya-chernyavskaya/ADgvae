@@ -42,14 +42,14 @@ device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if to
 #device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 multi_gpu = False #torch.cuda.device_count()>1
 print('Running on the device ',device,', Using multigpu ',multi_gpu)
-num_workers = 5
+num_workers = 0
 
 # ********************************************************
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience plotting generator')
-params = RunParameters(run_n=7, 
+params = RunParameters(run_n=8, 
                        n_epochs=2, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -101,10 +101,8 @@ with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='u
 print('>>> Preparing data')
 start_time = time.time()
 #taking already processed files
-train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n)
-train_dataset.calculate_offsets()
+train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n, shuffle=True)
 valid_dataset = graph_data.GraphDataset(root=root_path_valid,input_path = input_path, n_events = params.valid_total_n)
-valid_dataset.calculate_offsets()
 if not (params.generator):
     train_dataset = train_dataset.in_memory_data(params.train_total_n)
     valid_dataset = valid_dataset.in_memory_data(params.valid_total_n)
@@ -113,10 +111,11 @@ valid_samples = len(valid_dataset)
 print(f"Total number of train/valid events : {train_samples,valid_samples}")
 
 if multi_gpu:
-    train_loader = DataListLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=True)
+    #shuffle is not going to work inside the DataLoaders, because of the way the Dataset is set up, shuffling option is passed to the dataset
+    train_loader = DataListLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
     valid_loader = DataListLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 else:
-    train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
     valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 
 # *******************************************************
@@ -127,14 +126,13 @@ pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 if params.plotting:
     len_plot = int(1e4)
     plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=None)
-    plot_dataset.calculate_offsets()
+    graph_data.data_chunk_size = len_plot
     print('>>> Plotting consistuents features before normalization')
-    pf_cands,jet_prop =  plot_dataset.get_pfcands_jet_prop(len_plot)
+    pf_cands,jet_prop =  plot_dataset.get_pfcands_jet_prop()
     vande_plot.plot_features(np.concatenate(pf_cands), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     vande_plot.plot_features(jet_prop, plot_dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     print('>>> Plotting consistuents features after normalization')
     plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=BasicStandardizer())
-    plot_dataset.calculate_offsets()
     pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop(len_plot)
     #Plot consistuents and jet features prepared for the graph! (after normalization)
     vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)

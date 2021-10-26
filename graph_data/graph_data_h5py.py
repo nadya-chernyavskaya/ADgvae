@@ -1,6 +1,6 @@
 import glob
 import torch
-import itertools
+import itertools, random
 import numpy as np
 import pandas as pd
 import os.path as osp
@@ -12,6 +12,7 @@ from torch_geometric.data import Dataset, Data, Batch
 import scipy
 from scipy.sparse import csr_matrix
 from utils_torch.scaler import BasicStandardizer
+
 
 def get_present_constit(x,n):
     return x[0:n,:] 
@@ -61,7 +62,7 @@ class PairJetsData(Data):
         
 
 class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not just pytroch)
-    def __init__(self, root,input_path = None,transform=None, pre_transform=None, train_not_test=1,
+    def __init__(self, root,input_path = None,transform=None, pre_transform=None, shuffle=False,
         n_events=-1, side_reg=1, proc_type='==0', features='xyzeptep',n_proc=1,scaler=BasicStandardizer()):
         """
         Initialize parameters of graph dataset
@@ -75,9 +76,10 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             features (str): (px, py, pz) or relative (pt, eta, phi)
         """
         self.strides = [0]
+        self.len_in_files = []
         self.scaler = scaler
         self.input_path = input_path if input_path is not None else '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
-        self.train_not_test = train_not_test 
+        self.shuffle = shuffle 
         max_events = int(5e6)
         self.n_events = max_events if n_events==-1 else int(n_events)
         self.side_reg = side_reg
@@ -94,8 +96,12 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.jet_kin_names_model = 'N_constituents,M,Pt,Eta,Phi,truth'.split(',')
         self.set_up_scaler()
         super(GraphDataset, self).__init__(root, transform, pre_transform)
+        self.calculate_offsets()
+        self.data_chunk_size=int(1e4)
         self.current_file_idx=0
-        self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r')
+        self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
+        self.current_chunk_idx = 0
+        self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
 
     @property
     def raw_dir(self) -> str: #overwrite
@@ -110,11 +116,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         input_files_full = glob.glob(osp.join(self.raw_dir, '*.h5'))
         input_files = list(map(osp.basename, input_files_full))
         len_inp_files = len(input_files)
-        if self.train_not_test :
-            return [input_files[i_f] for i_f in range(0,2)] #first 2 
-        else :
-            return [input_files[i_f] for i_f in reversed(len_inp_files-2,len_inp_files)] #last 2  #this is just temp 
-        return files
+        return [input_files[i_f] for i_f in range(0,2)] #first 2 just for now
 
     @property
     def processed_file_names(self):
@@ -253,16 +255,14 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
                 pf_cands_concat, jet_prop_concat = self.process_one_chunk(raw_path, k,write_files=False)
 
 
-
     def calculate_offsets(self):
         for path in self.processed_paths:
             with h5py.File(path, 'r') as f:
                 self.strides.append(f['tot_n_jets'][()][0])
+        self.len_in_files = self.strides[1:]
         self.strides = np.cumsum(self.strides)
 
-
-    def get_pfcands_jet_prop(self, n_evt):
-        """ Used by PyTorch DataSet class """    
+    def get_pfcands_jet_prop_old(self, n_evt):
         file_idx = 0 #takes first file only
         if n_evt > self.strides[file_idx+1]:
             n_evt = self.strides[file_idx+1]
@@ -277,8 +277,23 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         return pf_cands, jet_prop 
 
 
-    def in_memory_data(self,n_evt):
-        pf_cands, jet_prop = self.get_pfcands_jet_prop(n_evt)
+    def get_pfcands_jet_prop(self):
+        n_start = self.current_chunk_idx*self.data_chunk_size
+        n_end = n_start+self.data_chunk_size 
+        if n_end > self.len_in_files[self.current_file_idx]:
+            n_end = self.len_in_files[self.current_file_idx]
+        n_particles = self.current_in_file['jet_props'][n_start:n_end,0].astype(int)
+        pf_cands = np.array(self.current_in_file['pf_cands'][n_start:n_end,:,:])
+        jet_prop = np.array(self.current_in_file['jet_props'][n_start:n_end,:])
+        if self.scaler is not None :
+            pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
+            pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
+        pf_cands = list(map(get_present_constit,pf_cands,n_particles))
+        return pf_cands, jet_prop 
+
+
+    def in_memory_data(self,shuffle=False): #(,n_evt)
+        pf_cands, jet_prop = self.get_pfcands_jet_prop() #(n_evt)
         datas = []
         n_jets = len(pf_cands)
         n_particles = [pf_cands[i_evt].shape[0] for i_evt in range(n_jets)]
@@ -287,6 +302,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         x = [torch.tensor(pf_cands[i_evt], dtype=torch.float) for i_evt in range(n_jets)]
         u = [torch.tensor(jet_prop[i_evt], dtype=torch.float) for i_evt in range(n_jets)]
         datas = [Data(x=x_jet, edge_index=edge_index_jet,u=torch.unsqueeze(u_jet, 0)) for x_jet,edge_index_jet,u_jet in zip(x,edge_index,u)]
+        if shuffle:
+            random.Random(0).shuffle(datas)
         return datas
 
 
@@ -299,7 +316,27 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         #with h5py.File(self.processed_paths[file_idx],'r') as f:
         if self.current_file_idx != file_idx:
             self.current_file_idx = file_idx
-            self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r')
+            self.current_in_file.close()
+            self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
+            self.current_chunk_idx = 0 #reset current chunk index
+        if idx_in_file > (self.current_chunk_idx+1)*self.data_chunk_size:
+            self.current_chunk_idx+=1
+            self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
+        idx_in_chunk =  idx_in_file // (self.current_chunk_idx*self.data_chunk_size)
+        return self.current_pytorch_datas[idx_in_chunk]
+
+    def get_files(self, idx): #not fast enough because have to prepare Graph Data object
+        """ Used by PyTorch DataSet class """    
+        file_idx = np.searchsorted(self.strides, idx) - 1
+        idx_in_file = idx - self.strides[max(0, file_idx)] - 1
+        print(file_idx,self.strides[max(0, file_idx)],idx - self.strides[max(0, file_idx)] - 1,idx_in_file)
+        if file_idx >= self.strides.size:
+            raise Exception(f'{idx} is beyond the end of the event list {self.strides[-1]}')
+        #with h5py.File(self.processed_paths[file_idx],'r') as f:
+        if self.current_file_idx != file_idx:
+            self.current_file_idx = file_idx
+            self.current_in_file.close()
+            self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
         n_particles = int(self.current_in_file['jet_props'][idx_in_file,0])
         adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
         edge_index,_ = from_scipy_sparse_matrix(adj)
@@ -312,14 +349,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
         return data 
 
-    def get_testing(self, idx):
-        """ Used by PyTorch DataSet class """
-        tot_num_files = self.n_events // self.n_events_merge #+ 1 if (self.n_events % self.n_events_merge) 
-        for i_f in  tot_num_files:       
-            p = osp.join(self.processed_dir, self.processed_file_names[i_f])
-            data = torch.load(p)
-            yield data[idx]
-        #return data
  
     def _process(self):
         """
@@ -339,17 +368,5 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         print('Done!')
 
 
-        
-    def return_inmemory_data_no_loop(self):
-        datas = []
-        n_jets = len(self.pf_cands)
-        n_particles = [self.pf_cands[i_evt].shape[0] for i_evt in range(n_jets)]
-        adj = [csr_matrix(np.ones((n_part,n_part)) - np.eye(n_part)) for n_part in n_particles]
-        edge_index = [from_scipy_sparse_matrix(a)[0] for a in adj] 
-        # save particles as node attributes and target
-        x= [torch.tensor(self.pf_cands[i_evt], dtype=torch.float) for i_evt in range(n_jets)] 
-        u = [torch.tensor(self.jet_prop[i_evt], dtype=torch.float) for i_evt in range(n_jets)] 
-        datas = [Data(x=x_jet, edge_index=edge_index_jet,u=torch.unsqueeze(u_jet, 0)) for x_jet,edge_index_jet,u_jet in zip(x,edge_index,u)]
-        return datas
         
 
