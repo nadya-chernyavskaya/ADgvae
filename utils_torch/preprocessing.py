@@ -28,4 +28,3 @@ def standardize(train_dataset, valid_dataset=None, test_dataset=None,minmax_idx 
     return scaler
 
 
-def basic_standarize(train_dataset,log_idx=None):

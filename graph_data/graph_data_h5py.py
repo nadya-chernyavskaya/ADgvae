@@ -123,13 +123,18 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         """
         Returns a list of all the files in the processed files directory
         """
+        #the best way is to just have train/valid files in different root_base directories to set up different loaders for train and validation
         proc_list = glob.glob(osp.join(self.processed_dir, 'BB*.h5'))
         return_list = list(map(osp.basename, proc_list))
         return return_list
 
 
     def len(self):
-        return self.strides[-1]
+        #return self.strides[-1] #this will process all files
+        if self.n_events <= self.strides[-1]:
+            return self.n_events
+        else:
+            return self.strides[-1]
 
     def set_up_scaler(self):
         self.idx_gev = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'pt,E,px,py,pz'.split(',')]
@@ -257,6 +262,34 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.strides = np.cumsum(self.strides)
 
 
+    def get_pfcands_jet_prop(self, n_evt):
+        """ Used by PyTorch DataSet class """    
+        file_idx = 0 #takes first file only
+        if n_evt > self.strides[file_idx+1]:
+            n_evt = self.strides[file_idx+1]
+        with h5py.File(self.processed_paths[file_idx],'r') as f:
+            n_particles = f['jet_props'][0:n_evt,0].astype(int)
+            pf_cands = np.array(f['pf_cands'][0:n_evt,:,:])
+            jet_prop = np.array(f['jet_props'][0:n_evt,:])
+            if self.scaler is not None :
+                pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
+                pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
+            pf_cands = list(map(get_present_constit,pf_cands,n_particles))
+        return pf_cands, jet_prop 
+
+
+    def in_memory_data(self,n_evt):
+        pf_cands, jet_prop = self.get_pfcands_jet_prop(n_evt)
+        datas = []
+        n_jets = len(pf_cands)
+        n_particles = [pf_cands[i_evt].shape[0] for i_evt in range(n_jets)]
+        adj = [csr_matrix(np.ones((n_part,n_part)) - np.eye(n_part))  for n_part in n_particles]
+        edge_index = [from_scipy_sparse_matrix(a)[0] for a in adj]        
+        x = [torch.tensor(pf_cands[i_evt], dtype=torch.float) for i_evt in range(n_jets)]
+        u = [torch.tensor(jet_prop[i_evt], dtype=torch.float) for i_evt in range(n_jets)]
+        datas = [Data(x=x_jet, edge_index=edge_index_jet,u=torch.unsqueeze(u_jet, 0)) for x_jet,edge_index_jet,u_jet in zip(x,edge_index,u)]
+        return datas
+
 
     def get(self, idx):
         """ Used by PyTorch DataSet class """    
@@ -268,13 +301,13 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             n_particles = int(f['jet_props'][idx_in_file,0])
             adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
             edge_index,_ = from_scipy_sparse_matrix(adj)
-            pf_cands = f['pf_cands'][idx_in_file,:n_particles,:]
+            pf_cands = np.array(f['pf_cands'][idx_in_file,:n_particles,:])
             if self.scaler is not None :
                 pf_cands[:,self.idx_gev]/=self.scaler.std_gev
                 pf_cands[:,self.idx_coord]/=self.scaler.std_coord
             x = torch.tensor(pf_cands, dtype=torch.float)
             u = torch.tensor(f['jet_props'][idx_in_file], dtype=torch.float)
-            data = [Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))]
+            data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
            # if self.scaler is not None:
         return data 
 

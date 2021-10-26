@@ -11,10 +11,11 @@ import pofah.util.experiment as expe
 import models_torch.models as models
 import models_torch.losses as losses
 import utils_torch.scaler
+from utils_torch.scaler import BasicStandardizer
 import utils_torch.preprocessing as prepr
 import utils_torch.plot_util as plot
 import utils_torch.train_util as train
-import graph_data.graph_data as graph_data
+import graph_data.graph_data_h5py as graph_data
 import utils_torch.model_summary as summary
 
 import numpy as np
@@ -34,19 +35,21 @@ import torch.nn as nn
 from torch.utils.data import random_split, ConcatDataset
 from torch_geometric.data import Data, DataLoader, DataListLoader
 from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
+import setGPU
 
 torch.manual_seed(0)
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-print('Running on the device ',device)
+device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
 multi_gpu = False #torch.cuda.device_count()>1
+print('Running on the device ',device,', Using multigpu ',multi_gpu)
+num_workers = 5
 
 # ********************************************************
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience plotting generator')
-params = RunParameters(run_n=5, 
-                       n_epochs=80, 
+params = RunParameters(run_n=6, 
+                       n_epochs=2, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
                        gen_part_n=int(1e5), #1e5
@@ -57,15 +60,16 @@ params = RunParameters(run_n=5,
                        min_lr=10e-6,
                        patience=4,
                        plotting=False,
-                       generator=0)  #run generator or not
+                       generator=0) 
 
 #Parameters for the graph dataset
 if 'QCD_side' in params.proc:
     side_reg = 1
     proc_type='==0'
 input_path = '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
-root_path = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/'
-    
+root_path_train = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/train/'
+root_path_valid = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/valid/'    
+
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 
 # ********************************************************
@@ -96,73 +100,43 @@ with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='u
 print('>>> Preparing data')
 start_time = time.time()
 #taking already processed files
-gdata = graph_data.GraphDataset(root=root_path,input_path = input_path)
-# train (generator)
-#if params.generator:
-    #to be filled
-#    print('Not yet prepared')
-#else : 
-    #in_memory_datas = dataset.return_inmemory_data_no_loop() 
-
-#in_memory_datas = [data for data in chain.from_iterable(gdata)]
-#end_time = time.time()
-#print(f"Runtime of the data preparation is {end_time - start_time}")
-#start_time = time.time()
-
-#random.Random(0).shuffle(in_memory_datas)
-#in_memory_datas = in_memory_datas[:params.train_total_n]
-#print(f"Total number of events in the memory {len(in_memory_datas)}")
-
-#fulllen = len(in_memory_datas)
-#valid_frac = int(params.valid_total_n/(params.train_total_n+params.valid_total_n))
-#train_len = int((1.-valid_frac) * fulllen)
-#tv_len = int(valid_frac * fulllen)
-#train_dataset = in_memory_datas[:train_len]
-#valid_dataset = in_memory_datas[train_len:train_len + tv_len]
-
-train_dataset = gdata[0]
-valid_dataset = gdata[1]
+train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n)
+train_dataset.calculate_offsets()
+valid_dataset = graph_data.GraphDataset(root=root_path_valid,input_path = input_path, n_events = params.valid_total_n)
+valid_dataset.calculate_offsets()
+if not (params.generator):
+    train_dataset = train_dataset.in_memory_data(params.train_total_n)
+    valid_dataset = valid_dataset.in_memory_data(params.valid_total_n)
 train_samples = len(train_dataset)
 valid_samples = len(valid_dataset)
-print(f"Total number of train/valid events in the memory {train_samples,valid_samples}")
+print(f"Total number of train/valid events : {train_samples,valid_samples}")
 
-num_workers = 5
-train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=True)
-valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
+if multi_gpu:
+    train_loader = DataListLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=True)
+    valid_loader = DataListLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
+else:
+    train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=True)
+    valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 
 # *******************************************************
 #                       plotting input features before scaling
 # *******************************************************
+fig_dir = os.path.join(experiment.model_dir, 'figs/')
+pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 if params.plotting:
-    print('Plotting consistuents features before normalization')
-    fig_dir = os.path.join(experiment.model_dir, 'figs/')
-    pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
-    len_plot = int(min(1e4,len(train_dataset)))
-    pf_cands = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
-    #jet_prop = [train_dataset[i].u for i in range(len_plot)] #TO DO : not working, need to fix
+    len_plot = int(1e4)
+    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=None)
+    plot_dataset.calculate_offsets()
+    print('>>> Plotting consistuents features before normalization')
+    pf_cands,jet_prop =  plot_dataset.get_pfcands_jet_prop(len_plot)
+    vande_plot.plot_features(np.concatenate(pf_cands), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+    vande_plot.plot_features(jet_prop, plot_dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+    print('>>> Plotting consistuents features after normalization')
+    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=BasicStandardizer())
+    plot_dataset.calculate_offsets()
+    pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop(len_plot)
     #Plot consistuents and jet features prepared for the graph! (after normalization)
-    vande_plot.plot_features(pf_cands.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-    #vande_plot.plot_features(np.array(jet_prop), gdata.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-
-# *******************************************************
-#                       scaling input features 
-# *******************************************************
-minmax_idx = []
-for f in 'E,pt'.split(','):
-    if f in gdata.pf_kin_names_model:
-        minmax_idx.append(gdata.pf_kin_names_model.index(f))
-log_idx = minmax_idx
-scaler = prepr.standardize(train_dataset, valid_dataset=valid_dataset,minmax_idx=minmax_idx,log_idx=log_idx)
-####TO DO : need to save the scaler
-
-# *******************************************************
-#                       plotting input features after scaling
-# *******************************************************
-if params.plotting:
-    print('Plotting consistuents features after normalization')
-    pf_cands_norm = torch.cat([torch.tensor(train_dataset[i].x, dtype=torch.float) for i in range(len_plot)])
-    #Plot consistuents and jet features prepared for the graph! (after normalization)
-    vande_plot.plot_features(pf_cands_norm.numpy(), gdata.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
+    vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
 
 # *******************************************************
@@ -202,7 +176,7 @@ modpath = osp.join(experiment.model_dir, settings.model_name+'.best.pth')
 if osp.isfile(modpath):
     model.load_state_dict(torch.load(modpath, map_location=device))
     model.to(device)
-    best_valid_loss,best_valid_loss_reco,best_valid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+    best_valid_loss,best_valid_loss_reco,best_valid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
     print('Loaded model')
     print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
     if osp.isfile(osp.join(experiment.model_dir,'losses.pt')):
@@ -220,8 +194,8 @@ stale_epochs = 0
 loss = best_valid_loss
 epoch=0
 for epoch in range(start_epoch, params.n_epochs):
-    loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj)
-    valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj)
+    loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
+    valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
 
     scheduler.step(valid_loss)
     train_losses['tot'].append(loss)
@@ -250,7 +224,7 @@ for epoch in range(start_epoch, params.n_epochs):
         break
 
 end_time = time.time()
-print(f"Runtime of the training is {end_time - start_time}")
+print(f">>> Runtime of the training is {end_time - start_time}")
 
 # model training done
 if epoch!=0:
@@ -268,9 +242,9 @@ if multi_gpu:
     model = DataParallel(model)
 model.to(device)
 
-print('Plotting input/output reco')
+print('>>> Plotting input/output reco')
 inverse_standardization = True
 plot_scale = 'all_mseconv'
 plot.plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
 plot.plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
-print('Completed')
+print('>>> Completed')

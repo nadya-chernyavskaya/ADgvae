@@ -3,13 +3,9 @@ import torch
 from torch_geometric.data import Batch
 import models_torch.models as models
 
-torch.manual_seed(0)
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-multi_gpu = torch.cuda.device_count()>1
-
 
 @torch.no_grad()
-def test(model, loader, total, batch_size, loss_ftn_obj):
+def test(model, loader, total, batch_size, loss_ftn_obj,device, multi_gpu=False):
     model.eval()
 
     sum_loss = 0.
@@ -17,7 +13,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj):
     sum_loss_kl = 0.
     t = tqdm.tqdm(enumerate(loader),total=total/batch_size)
     for i,data in t:
-        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=False)
+        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu)
         if isinstance(batch_loss,tuple) :
             batch_loss,batch_loss_reco,batch_loss_kl = batch_loss[0].item(),batch_loss[1].item(),batch_loss[2].item()
             sum_loss += batch_loss
@@ -35,7 +31,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj):
 
 
 
-def train(model, optimizer, loader, total, batch_size, loss_ftn_obj):
+def train(model, optimizer, loader, total, batch_size, loss_ftn_obj, device, multi_gpu=False):
     model.train()
 
     sum_loss = 0.
@@ -45,7 +41,7 @@ def train(model, optimizer, loader, total, batch_size, loss_ftn_obj):
     for i,data in t:
         optimizer.zero_grad()
 
-        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=False)
+        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu)
         if isinstance(batch_loss,tuple) :
             batch_loss[0].backward() #only total loss from vae
             optimizer.step()
