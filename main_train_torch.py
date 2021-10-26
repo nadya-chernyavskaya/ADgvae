@@ -39,6 +39,7 @@ import setGPU
 
 torch.manual_seed(0)
 device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
+#device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
 multi_gpu = False #torch.cuda.device_count()>1
 print('Running on the device ',device,', Using multigpu ',multi_gpu)
 num_workers = 5
@@ -48,7 +49,7 @@ num_workers = 5
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience plotting generator')
-params = RunParameters(run_n=6, 
+params = RunParameters(run_n=7, 
                        n_epochs=2, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -60,7 +61,7 @@ params = RunParameters(run_n=6,
                        min_lr=10e-6,
                        patience=4,
                        plotting=False,
-                       generator=0) 
+                       generator=1) 
 
 #Parameters for the graph dataset
 if 'QCD_side' in params.proc:

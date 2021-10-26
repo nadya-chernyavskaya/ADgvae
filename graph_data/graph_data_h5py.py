@@ -93,10 +93,9 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.pf_kin_names_model = 'px,py,pz,E,pt,eta,phi'.split(',')
         self.jet_kin_names_model = 'N_constituents,M,Pt,Eta,Phi,truth'.split(',')
         self.set_up_scaler()
-      #  self.pf_cands, self.jet_prop = self.read_events()   
-
-        
         super(GraphDataset, self).__init__(root, transform, pre_transform)
+        self.current_file_idx=0
+        self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r')
 
     @property
     def raw_dir(self) -> str: #overwrite
@@ -297,18 +296,20 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         idx_in_file = idx - self.strides[max(0, file_idx)] - 1
         if file_idx >= self.strides.size:
             raise Exception(f'{idx} is beyond the end of the event list {self.strides[-1]}')
-        with h5py.File(self.processed_paths[file_idx],'r') as f:
-            n_particles = int(f['jet_props'][idx_in_file,0])
-            adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
-            edge_index,_ = from_scipy_sparse_matrix(adj)
-            pf_cands = np.array(f['pf_cands'][idx_in_file,:n_particles,:])
-            if self.scaler is not None :
-                pf_cands[:,self.idx_gev]/=self.scaler.std_gev
-                pf_cands[:,self.idx_coord]/=self.scaler.std_coord
-            x = torch.tensor(pf_cands, dtype=torch.float)
-            u = torch.tensor(f['jet_props'][idx_in_file], dtype=torch.float)
-            data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
-           # if self.scaler is not None:
+        #with h5py.File(self.processed_paths[file_idx],'r') as f:
+        if self.current_file_idx != file_idx:
+            self.current_file_idx = file_idx
+            self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r')
+        n_particles = int(self.current_in_file['jet_props'][idx_in_file,0])
+        adj = csr_matrix(np.ones((n_particles,n_particles)) - np.eye(n_particles)) 
+        edge_index,_ = from_scipy_sparse_matrix(adj)
+        pf_cands = np.array(self.current_in_file['pf_cands'][idx_in_file,:n_particles,:])
+        if self.scaler is not None :
+            pf_cands[:,self.idx_gev]/=self.scaler.std_gev
+            pf_cands[:,self.idx_coord]/=self.scaler.std_coord
+        x = torch.tensor(pf_cands, dtype=torch.float)
+        u = torch.tensor(self.current_in_file['jet_props'][idx_in_file], dtype=torch.float)
+        data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))
         return data 
 
     def get_testing(self, idx):
