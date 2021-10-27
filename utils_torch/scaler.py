@@ -5,6 +5,26 @@ class BasicStandardizer:
     def __init__(self):
         self.std_gev = 20
         self.std_coord = 3
+        self.idx_coord = []
+        self.idx_gev = []
+        
+    def transform(self,data):
+        if len(data.shape)==3:
+            data[:,:,self.idx_gev]/=self.std_gev
+            data[:,:,self.idx_coord]/=self.std_coord
+        if len(data.shape)==2:
+            data[:,self.idx_gev]/=self.std_gev
+            data[:,self.idx_coord]/=self.std_coord
+        return data
+
+    def inverse_transform(self,data):
+        if len(data.shape)==3:
+            data[:,:,self.idx_gev]*=self.std_gev
+            data[:,:,self.idx_coord]*=self.std_coord
+        if len(data.shape)==2:
+            data[:,self.idx_gev]*=self.std_gev
+            data[:,self.idx_coord]*=self.std_coord
+        return data
 
 
 class Standardizer:

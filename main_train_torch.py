@@ -39,8 +39,7 @@ import setGPU
 
 torch.manual_seed(0)
 device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
-#device = torch.device('cuda:2' if torch.cuda.is_available() else 'cpu')
-multi_gpu = False #torch.cuda.device_count()>1
+multi_gpu = False #torch.cuda.device_count()>1 #using multi-gpu is not tested with the current DataSet and might not work
 print('Running on the device ',device,', Using multigpu ',multi_gpu)
 num_workers = 0
 
@@ -48,18 +47,16 @@ num_workers = 0
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- n_epochs train_total_n valid_total_n gen_part_n proc train_not_test batch_n learning_rate min_lr patience plotting generator')
+ n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience plotting generator')
 params = RunParameters(run_n=8, 
-                       n_epochs=2, 
+                       n_epochs=50, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
-                       gen_part_n=int(1e5), #1e5
                        proc='QCD_side',
-                       train_not_test=1, #not yet used properly
                        batch_n=200, 
                        learning_rate=0.001,
-                       min_lr=10e-6,
-                       patience=4,
+                       min_lr=10e-7,
+                       patience=6,
                        plotting=False,
                        generator=1) 
 
@@ -76,16 +73,16 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'model_name  input_dim output_dim activation initializer big_dim hidden_dim beta loss_func')
+Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
-                     output_dim=4,
-                     activation=nn.LeakyReLU(0.1),
-                     initializer='',#not yet set up 
+                     output_dim=7,
+                     loss_func = 'vae_loss_mse',  #  vae_loss_mse'vae_loss_mse_coord',
                      big_dim=32,
                      hidden_dim=2,
                      beta=0.5,
-                     loss_func = 'vae_loss_mse_coord')
+                     activation=nn.ReLU(),#nn.LeakyReLU(0.1),
+                     initializer='') #not yet set up 
 
 
 ''' saving model parameters''' 
@@ -133,7 +130,7 @@ if params.plotting:
     vande_plot.plot_features(jet_prop, plot_dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     print('>>> Plotting consistuents features after normalization')
     plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=BasicStandardizer())
-    pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop(len_plot)
+    pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop()
     #Plot consistuents and jet features prepared for the graph! (after normalization)
     vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
 
@@ -154,7 +151,7 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 #                       training options
 # *******************************************************
 optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=params.patience, threshold=params.min_lr)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr)
 loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device)
 
 # *******************************************************
@@ -244,6 +241,6 @@ model.to(device)
 print('>>> Plotting input/output reco')
 inverse_standardization = True
 plot_scale = 'all_mseconv'
-plot.plot_reco_for_loader(model, train_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
-plot.plot_reco_for_loader(model, valid_loader, device, scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
+plot.plot_reco_for_loader(model, train_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
+plot.plot_reco_for_loader(model, valid_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
 print('>>> Completed')

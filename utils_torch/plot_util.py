@@ -1,9 +1,12 @@
+import os
+import os.path as osp
+from pathlib import Path
 import torch
 import numpy as np
-import os.path as osp
 import matplotlib.pyplot as plt
-from pathlib import Path
 import models_torch.losses as losses
+import utils_torch.scaler
+from utils_torch.scaler import BasicStandardizer,Standardizer
 
 plt_style = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigstyle.mplstyle'
 plt.style.use(plt_style)
@@ -25,7 +28,6 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
     Args:
         input_fts (numpy array): the original features of the particles
         reco_fts (numpy array): the reconstructed features
-        model_fname (str): name of saved model
     """
     
     if isinstance(input_fts, torch.Tensor):
@@ -62,13 +64,13 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         elif 'norm' in feature :
             bins = np.linspace(-1, 1, 50)
         elif 'all' in feature :
-            bins = np.linspace(-20, 20, 101)
+            bins = np.linspace(-20, 20, 50)
             if i > 3:  # different bin size for hadronic coord
-                bins = np.linspace(-2, 2, 101)
+                bins = np.linspace(-2, 2, 50)
             if i == 3:  # different bin size for E momentum
-                bins = np.linspace(-5, 35, 101)
+                bins = np.linspace(-5, 35, 50)
             if i == 4:  # different bin size for pt rel
-                bins = np.linspace(-2, 10, 101)
+                bins = np.linspace(-2, 10, 50)
         else:
             bins = np.linspace(-1, 1, 50)
         plt.ticklabel_format(useMathText=True)
@@ -130,6 +132,37 @@ def gen_in_out(model, loader, device):
     reco_fts = torch.cat(reco_fts)
     return input_fts, reco_fts
 
+@torch.no_grad()
+def gen_in_out_latent(model, loader, device):
+    model.eval()
+    mu_fts,log_var_fts = [], []
+    z_0_fts, z_last_fts = [],[]
+    input_fts = []
+    reco_fts = []
+
+    for t in loader:
+        t.to(device)
+        input_fts.append(d.x)
+        out = model(t)#tuple
+        if len(out)==6:
+            reco, mu, log_var, _, z_0, z_last = out
+            z_0_fts.append(z_0.cpu().detach())
+            z_last_fts.append(z_last.cpu().detach())
+        elif len(out)==3:
+            reco, mu, log_var = out
+        mu_fts.append(mu.cpu().detach())
+        log_var_fts.append(log_var.cpu().detach())
+        reco_fts.append(reco.cpu().detach())
+
+    input_fts = torch.cat(input_fts)
+    reco_fts = torch.cat(reco_fts)
+    mu_fts = torch.cat(mu_fts)
+    log_var_fts = torch.cat(log_var_fts)
+    if len(out)==6:
+        z_0_fts = torch.cat(z_0_fts)
+        z_last_fts = torch.cat(z_last_fts)
+    return (input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
+
 
 @torch.no_grad()
 def eval_loss(model, loader, device):
@@ -164,10 +197,36 @@ def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fna
     input_fts, reco_fts = gen_in_out(model, loader, device)
     if 'mseconv' in feature_format:
         reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
+    save_dir_norm = os.path.join(save_dir, 'normalized/')
+    Path(save_dir_norm).mkdir(parents=True, exist_ok=True)
+    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir_norm, feature_format)
     if inverse_scale:
-        input_fts = scaler.inverse_transform(input_fts)
-        reco_fts = scaler.inverse_transform(reco_fts)
-    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
+        if isinstance(scaler,Standardizer) :
+            input_fts = scaler.inverse_transform(input_fts)
+            reco_fts = scaler.inverse_transform(reco_fts)
+        elif isinstance(scaler,BasicStandardizer) :
+            input_fts = scaler.inverse_transform(input_fts)
+            reco_fts = scaler.inverse_transform(reco_fts)
+        plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
+
+
+
+def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
+    input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts = gen_in_out_latent(model, loader, device)
+    if 'mseconv' in feature_format:
+        reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
+    save_dir_norm = os.path.join(save_dir, 'normalized/')
+    Path(save_dir_norm).mkdir(parents=True, exist_ok=True)
+    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir_norm, feature_format)
+    if inverse_scale:
+        if isinstance(scaler,Standardizer) :
+            input_fts = scaler.inverse_transform(input_fts)
+            reco_fts = scaler.inverse_transform(reco_fts)
+        elif isinstance(scaler,BasicStandardizer) :
+            input_fts = scaler.inverse_transform(input_fts)
+            reco_fts = scaler.inverse_transform(reco_fts)
+        plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
+    
 
 
 def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path, fig_name=''):

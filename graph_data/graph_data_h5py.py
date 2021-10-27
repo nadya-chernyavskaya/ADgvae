@@ -94,7 +94,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         self.pf_kin_names = 'px,py,pz,E,'.split(',')
         self.pf_kin_names_model = 'px,py,pz,E,pt,eta,phi'.split(',')
         self.jet_kin_names_model = 'N_constituents,M,Pt,Eta,Phi,truth'.split(',')
-        self.set_up_scaler()
+        if scaler is not None : 
+            self.set_up_scaler()
         super(GraphDataset, self).__init__(root, transform, pre_transform)
         self.calculate_offsets()
         self.data_chunk_size=int(1e4)
@@ -140,6 +141,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
     def set_up_scaler(self):
         self.idx_gev = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'pt,E,px,py,pz'.split(',')]
         self.idx_coord = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'eta,phi'.split(',')]
+        self.scaler.idx_gev = self.idx_gev
+        self.scaler.idx_coord = self.idx_coord
 
     def download(self):
         # Download to `self.raw_dir`.
@@ -271,9 +274,11 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         n_particles = self.current_in_file['jet_props'][n_start:n_end,0].astype(int)
         pf_cands = np.array(self.current_in_file['pf_cands'][n_start:n_end,:,:])
         jet_prop = np.array(self.current_in_file['jet_props'][n_start:n_end,:])
+        #if self.scaler is not None :
+        #    pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
+        #    pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
         if self.scaler is not None :
-            pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
-            pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
+            pf_cands = self.scaler.transform(pf_cands)
         pf_cands = list(map(get_present_constit,pf_cands,n_particles))
         return pf_cands, jet_prop 
 
@@ -329,8 +334,9 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         edge_index,_ = from_scipy_sparse_matrix(adj)
         pf_cands = np.array(self.current_in_file['pf_cands'][idx_in_file,:n_particles,:])
         if self.scaler is not None :
-            pf_cands[:,self.idx_gev]/=self.scaler.std_gev
-            pf_cands[:,self.idx_coord]/=self.scaler.std_coord
+        #    pf_cands[:,self.idx_gev]/=self.scaler.std_gev
+        #    pf_cands[:,self.idx_coord]/=self.scaler.std_coord
+            pf_cands = self.scaler.transform(pf_cands)
         x = torch.tensor(pf_cands, dtype=torch.float)
         u = torch.tensor(self.current_in_file['jet_props'][idx_in_file], dtype=torch.float)
         data = Data(x=x, edge_index=edge_index,u=torch.unsqueeze(u, 0))

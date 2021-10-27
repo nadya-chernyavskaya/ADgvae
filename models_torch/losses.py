@@ -13,7 +13,7 @@ eps = 1e-12
 torch.autograd.set_detect_anomaly(True)
 
 
-def xyze_to_ptetaphi_torch(y):
+def xyze_to_ptetaphi_torch(y,log_idx=[]):
     ''' converts an array [N x 100, 4] of particles
 from px, py, pz, E to pt,eta, phi
     '''
@@ -21,24 +21,30 @@ from px, py, pz, E to pt,eta, phi
     pt =torch.sqrt(torch.pow(y[:,PX_idx], 2) + torch.pow(y[:,PY_idx], 2)) 
     eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))
     phi = torch.atan2(y[:,PY_idx], y[:,PX_idx])
-
+    #recalculate E as well
+    E = torch.sqrt(torch.pow(pt,2) + torch.pow(y[:,PZ_idx], 2))
+    #y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi]
+    y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],E,pt,eta,phi]
+    if len(log_idx)!=0:
+        y_out[log_idx] = torch.log(y_out[log_idx]) 
     #relu =  m = nn.ReLU() #inplace=True  #This is actually not needed for E if min-max normalization is used for pt,E, AND!! relu is used as an activation function.
    # y_E_trimmed = relu(y[:,E_idx]) #trimming E
     #y_pt_trimmed = relu(pt) #trimming pt
    # full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y_E_trimmed,y_pt_trimmed,eta,phi), dim=1)
    # full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y_pt_trimmed,eta,phi), dim=1)
-    full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi), dim=1)
+    full_y = torch.stack(y_out, dim=1)
 
     return full_y
 
 
 class LossFunction:
-    def __init__(self, lossname, beta = 0.5,device=torch.device('cuda:0')):
+    def __init__(self, lossname, beta = 0.5,log_idx = [],device=torch.device('cuda:0')):
         loss = getattr(self, lossname)
         self.name = lossname
         self.loss_ftn = loss
         self.device = device
         self.beta = beta
+        self.log_idx = log_idx
         
     def mse(self, x, y):
         return F.mse_loss(x, y, reduction='mean')
@@ -47,7 +53,7 @@ class LossFunction:
         #From px,py,pz,E get pt, eta, phi (do not predict them)
         #x is px,py,pz,E,pt,eta,phi
         #y is px,py,pz,E
-        full_y = xyze_to_ptetaphi_torch(y)#what about log pt
+        full_y = xyze_to_ptetaphi_torch(y,log_idx = self.log_idx) 
         return self.mse(x,full_y)
 
     # Reconstruction + KL divergence losses
