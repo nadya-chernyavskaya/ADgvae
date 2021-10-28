@@ -300,8 +300,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
 
     def get(self, idx):
         """ Used by PyTorch DataSet class """    
-        file_idx = np.searchsorted(self.strides, idx) - 1
-        idx_in_file = idx - self.strides[max(0, file_idx)] - 1
+        file_idx = np.searchsorted(self.strides, idx) - 1 if idx!=0 else np.searchsorted(self.strides, idx)
+        idx_in_file = idx - self.strides[max(0, file_idx)] 
         if file_idx >= self.strides.size:
             raise Exception(f'{idx} is beyond the end of the event list {self.strides[-1]}')
         #with h5py.File(self.processed_paths[file_idx],'r') as f:
@@ -311,17 +311,16 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
             self.current_chunk_idx = 0 #reset current chunk index
             self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
-        if (idx_in_file > (self.current_chunk_idx+1)*self.data_chunk_size):
+        if (idx_in_file >= (self.current_chunk_idx+1)*self.data_chunk_size):
             self.current_chunk_idx+=1
             self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
-        idx_in_chunk =  idx_in_file // (self.current_chunk_idx*self.data_chunk_size)
+        idx_in_chunk =  idx_in_file % (self.data_chunk_size)
         return self.current_pytorch_datas[idx_in_chunk]
 
     def get_files(self, idx): #not fast enough because have to prepare Graph Data object
         """ Used by PyTorch DataSet class """    
-        file_idx = np.searchsorted(self.strides, idx) - 1
-        idx_in_file = idx - self.strides[max(0, file_idx)] - 1
-        print(file_idx,self.strides[max(0, file_idx)],idx - self.strides[max(0, file_idx)] - 1,idx_in_file)
+        file_idx = np.searchsorted(self.strides, idx) - 1 if idx!=0 else np.searchsorted(self.strides, idx)
+        idx_in_file = idx - self.strides[max(0, file_idx)] 
         if file_idx >= self.strides.size:
             raise Exception(f'{idx} is beyond the end of the event list {self.strides[-1]}')
         #with h5py.File(self.processed_paths[file_idx],'r') as f:

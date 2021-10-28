@@ -48,8 +48,8 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience plotting generator')
-params = RunParameters(run_n=8, 
-                       n_epochs=50, 
+params = RunParameters(run_n=9, 
+                       n_epochs=1, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
                        proc='QCD_side',
@@ -101,8 +101,11 @@ start_time = time.time()
 train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n, shuffle=True)
 valid_dataset = graph_data.GraphDataset(root=root_path_valid,input_path = input_path, n_events = params.valid_total_n)
 if not (params.generator):
-    train_dataset = train_dataset.in_memory_data(params.train_total_n)
-    valid_dataset = valid_dataset.in_memory_data(params.valid_total_n)
+    #Loading in memory data, but only from the first file
+    train_dataset.data_chunk_size = params.train_total_n
+    train_dataset = train_dataset.in_memory_data(shuffle=True)
+    valid_dataset.data_chunk_size = params.valid_total_n
+    valid_dataset = valid_dataset.in_memory_data(shuffle=False)
 train_samples = len(train_dataset)
 valid_samples = len(valid_dataset)
 print(f"Total number of train/valid events : {train_samples,valid_samples}")
@@ -133,7 +136,6 @@ if params.plotting:
     pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop()
     #Plot consistuents and jet features prepared for the graph! (after normalization)
     vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
-
 
 # *******************************************************
 #                       build model
