@@ -26,7 +26,7 @@ from px, py, pz, E to pt,eta, phi
     #y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi]
     y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],E,pt,eta,phi]
     if len(log_idx)!=0:
-        y_out[log_idx] = torch.log(y_out[log_idx]) 
+        y_out[log_idx] = torch.log(y_out[log_idx] + 1)
     #relu =  m = nn.ReLU() #inplace=True  #This is actually not needed for E if min-max normalization is used for pt,E, AND!! relu is used as an activation function.
    # y_E_trimmed = relu(y[:,E_idx]) #trimming E
     #y_pt_trimmed = relu(pt) #trimming pt

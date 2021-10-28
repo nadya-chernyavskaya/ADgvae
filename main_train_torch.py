@@ -10,8 +10,7 @@ import pofah.util.experiment as expe
 
 import models_torch.models as models
 import models_torch.losses as losses
-import utils_torch.scaler
-from utils_torch.scaler import BasicStandardizer
+import utils_torch.scaler as uscaler
 import utils_torch.preprocessing as prepr
 import utils_torch.plot_util as plot
 import utils_torch.train_util as train
@@ -21,7 +20,7 @@ import utils_torch.model_summary as summary
 import numpy as np
 from collections import namedtuple
 import time,pathlib
-import h5py, json, glob, tqdm, math, random
+import h5py, json,pickle, glob, tqdm, math, random
 from contextlib import redirect_stdout
 import itertools
 from itertools import chain
@@ -49,7 +48,7 @@ num_workers = 0
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience plotting generator')
 params = RunParameters(run_n=9, 
-                       n_epochs=1, 
+                       n_epochs=50, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
                        proc='QCD_side',
@@ -73,11 +72,12 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func big_dim hidden_dim beta activation initializer')
+Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
                      output_dim=7,
                      loss_func = 'vae_loss_mse',  #  vae_loss_mse'vae_loss_mse_coord',
+                     standardizer=uscaler.BasicStandardizer(),
                      big_dim=32,
                      hidden_dim=2,
                      beta=0.5,
@@ -85,12 +85,6 @@ settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      initializer='') #not yet set up 
 
 
-''' saving model parameters''' 
-SetupParameters = namedtuple("SetupParameters", RunParameters._fields + Parameters._fields)
-save_params = SetupParameters(*(params + settings))
-saev_params_json = json.dumps((save_params._replace(activation='activation'))._asdict()) #replacing activation as you cannot save it
-with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='utf-8') as f_json:
-    json.dump(saev_params_json, f_json, ensure_ascii=False, indent=4)
 
 # ********************************************************
 #       prepare training (generator) and validation data
@@ -98,8 +92,8 @@ with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='u
 print('>>> Preparing data')
 start_time = time.time()
 #taking already processed files
-train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n, shuffle=True)
-valid_dataset = graph_data.GraphDataset(root=root_path_valid,input_path = input_path, n_events = params.valid_total_n)
+train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = params.train_total_n, scaler=settings.standardizer,shuffle=True)
+valid_dataset = graph_data.GraphDataset(root=root_path_valid,input_path = input_path, n_events = params.valid_total_n, scaler=settings.standardizer)
 if not (params.generator):
     #Loading in memory data, but only from the first file
     train_dataset.data_chunk_size = params.train_total_n
@@ -118,6 +112,17 @@ else:
     train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
     valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 
+# ********************************************************
+#       saving model parameters
+# ********************************************************
+SetupParameters = namedtuple("SetupParameters", RunParameters._fields + Parameters._fields)
+save_params = SetupParameters(*(params + settings))
+save_params_json = json.dumps((save_params._replace(activation='activation')._replace(standardizer=save_params.standardizer.name))._asdict()) #replacing activation as you cannot save it, but it is saved in the model file
+with open(os.path.join(experiment.model_dir,'parameters.json'), 'w', encoding='utf-8') as f_json:
+    json.dump(save_params_json, f_json, ensure_ascii=False, indent=4)
+with open(os.path.join(experiment.model_dir,'scaler.pkl'), 'wb') as outp:
+    pickle.dump(train_dataset.scaler, outp, pickle.HIGHEST_PROTOCOL)
+
 # *******************************************************
 #                       plotting input features before scaling
 # *******************************************************
@@ -132,7 +137,7 @@ if params.plotting:
     vande_plot.plot_features(np.concatenate(pf_cands), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     vande_plot.plot_features(jet_prop, plot_dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     print('>>> Plotting consistuents features after normalization')
-    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=BasicStandardizer())
+    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=scaler=settings.standardizer)
     pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop()
     #Plot consistuents and jet features prepared for the graph! (after normalization)
     vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
@@ -154,7 +159,7 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 # *******************************************************
 optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr)
-loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device)
+loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=[])
 
 # *******************************************************
 #                       train and save
@@ -244,5 +249,5 @@ print('>>> Plotting input/output reco')
 inverse_standardization = True
 plot_scale = 'all_mseconv'
 plot.plot_reco_for_loader(model, train_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
-plot.plot_reco_for_loader(model, valid_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
+plot.plot_reco_for_loader(model, valid_loader, device,train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
 print('>>> Completed')
