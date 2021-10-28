@@ -1,4 +1,4 @@
-import os
+import os,sys
 import os.path as osp
 from pathlib import Path
 import torch
@@ -6,7 +6,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import models_torch.losses as losses
 import utils_torch.scaler
-from utils_torch.scaler import BasicStandardizer,Standardizer
+from utils_torch.scaler import BasicStandardizer,Standardizer,BasicAndLogStandardizer
+sys.path.append(os.path.abspath(os.path.join('..')))
+import vande.util.util_plotting as vande_plot
+
 
 plt_style = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigstyle.mplstyle'
 plt.style.use(plt_style)
@@ -21,6 +24,7 @@ def loss_distr(losses, save_name):
     plt.ylabel('Jets', fontsize=16)
     plt.savefig(osp.join(save_name+'.pdf'))
     plt.close()
+
 
 def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='hadronic'):
     """
@@ -142,7 +146,7 @@ def gen_in_out_latent(model, loader, device):
 
     for t in loader:
         t.to(device)
-        input_fts.append(d.x)
+        input_fts.append(t.x)
         out = model(t)#tuple
         if len(out)==6:
             reco, mu, log_var, _, z_0, z_last = out
@@ -213,6 +217,9 @@ def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fna
 
 def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
     input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts = gen_in_out_latent(model, loader, device)
+    vande_plot.plot_2dhist( z_0_fts.numpy(), 'Dim. 0', 'Dim. 1', 'Before Normalizing Flows', plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
+    vande_plot.plot_2dhist( z_last_fts.numpy() , 'Dim. 0', 'Dim. 1', 'After Normalizing Flows', plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
+    return 0
     if 'mseconv' in feature_format:
         reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
     save_dir_norm = os.path.join(save_dir, 'normalized/')
@@ -222,11 +229,11 @@ def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, mo
         if isinstance(scaler,Standardizer) :
             input_fts = scaler.inverse_transform(input_fts)
             reco_fts = scaler.inverse_transform(reco_fts)
-        elif isinstance(scaler,BasicStandardizer) :
+        elif isinstance(scaler,BasicStandardizer) or isinstance(scaler,BasicAndLogStandardizer) :
             input_fts = scaler.inverse_transform(input_fts)
             reco_fts = scaler.inverse_transform(reco_fts)
         plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
-    
+
 
 
 def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path, fig_name=''):

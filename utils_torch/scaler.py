@@ -30,26 +30,26 @@ class BasicStandardizer:
 class BasicAndLogStandardizer:
     def __init__(self):
         self.name = 'BasicAndLogStandardizer'
-        self.std_gev = 20
+        self.std_gev = 1
         self.std_coord = 3
         self.idx_coord = []
         self.idx_gev = []
         
     def transform(self,data):
         if len(data.shape)==3:
-            data[:,:,self.idx_gev]=torch.log(data[:,:,self.idx_gev] + 1)
+            data[:,:,self.idx_gev]=np.where((data[:,:,self.idx_gev] + 1)>0, np.log(data[:,:,self.idx_gev] + 1), 0)
             data[:,:,self.idx_coord]/=self.std_coord
         if len(data.shape)==2:
-            data[:,self.idx_gev]=torch.log(data[:,self.idx_gev] + 1)
+            data[:,self.idx_gev]=np.where((data[:,self.idx_gev] + 1)>0, np.log(data[:,self.idx_gev] + 1), 0)
             data[:,self.idx_coord]/=self.std_coord
         return data
 
     def inverse_transform(self,data):
         if len(data.shape)==3:
-            data[:,:,self.idx_gev]=(torch.exp(data[:,:,self.idx_gev])) - 1
+            data[:,:,self.idx_gev]=(np.exp(data[:,:,self.idx_gev])) - 1
             data[:,:,self.idx_coord]*=self.std_coord
         if len(data.shape)==2:
-            data[:,self.idx_gev]=(torch.exp(data[:,self.idx_gev])) - 1
+            data[:,self.idx_gev]=(np.exp(data[:,self.idx_gev])) - 1
             data[:,self.idx_coord]*=self.std_coord
         return data
 

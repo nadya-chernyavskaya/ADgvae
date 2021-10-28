@@ -73,7 +73,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             side_reg (bool):true or false, side region for training, otherwise for testing on signal
             proc_type (str): string expression ==proc_type, or </>/~=/==   
             n_proc (int): number of processes to split into
-            features (str): (px, py, pz) or relative (pt, eta, phi)
+            features (str): (px, py, pz) or relative (pt, eta, phi) #not currently used
         """
         self.strides = [0]
         self.len_in_files = []
@@ -274,9 +274,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         n_particles = self.current_in_file['jet_props'][n_start:n_end,0].astype(int)
         pf_cands = np.array(self.current_in_file['pf_cands'][n_start:n_end,:,:])
         jet_prop = np.array(self.current_in_file['jet_props'][n_start:n_end,:])
-        #if self.scaler is not None :
-        #    pf_cands[:,:,self.idx_gev]/=self.scaler.std_gev
-        #    pf_cands[:,:,self.idx_coord]/=self.scaler.std_coord
         if self.scaler is not None :
             pf_cands = self.scaler.transform(pf_cands)
         pf_cands = list(map(get_present_constit,pf_cands,n_particles))
@@ -333,8 +330,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         edge_index,_ = from_scipy_sparse_matrix(adj)
         pf_cands = np.array(self.current_in_file['pf_cands'][idx_in_file,:n_particles,:])
         if self.scaler is not None :
-        #    pf_cands[:,self.idx_gev]/=self.scaler.std_gev
-        #    pf_cands[:,self.idx_coord]/=self.scaler.std_coord
             pf_cands = self.scaler.transform(pf_cands)
         x = torch.tensor(pf_cands, dtype=torch.float)
         u = torch.tensor(self.current_in_file['jet_props'][idx_in_file], dtype=torch.float)

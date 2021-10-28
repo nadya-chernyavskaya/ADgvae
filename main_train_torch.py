@@ -56,7 +56,7 @@ params = RunParameters(run_n=9,
                        learning_rate=0.001,
                        min_lr=10e-7,
                        patience=6,
-                       plotting=False,
+                       plotting=True,
                        generator=1) 
 
 #Parameters for the graph dataset
@@ -77,7 +77,7 @@ settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
                      output_dim=7,
                      loss_func = 'vae_loss_mse',  #  vae_loss_mse'vae_loss_mse_coord',
-                     standardizer=uscaler.BasicStandardizer(),
+                     standardizer=uscaler.BasicStandardizer(),  #BasicStandardizer BasicAndLogStandardizer
                      big_dim=32,
                      hidden_dim=2,
                      beta=0.5,
@@ -137,7 +137,7 @@ if params.plotting:
     vande_plot.plot_features(np.concatenate(pf_cands), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents', plotname='{}plot_pf_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     vande_plot.plot_features(jet_prop, plot_dataset.jet_kin_names_model ,'Normalized' , 'Jets', plotname='{}plot_jet_feats_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
     print('>>> Plotting consistuents features after normalization')
-    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=scaler=settings.standardizer)
+    plot_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path, n_events = len_plot,scaler=settings.standardizer)
     pf_cands_norm,_ =  plot_dataset.get_pfcands_jet_prop()
     #Plot consistuents and jet features prepared for the graph! (after normalization)
     vande_plot.plot_features(np.concatenate(pf_cands_norm), plot_dataset.pf_kin_names_model  ,'Normalized' , 'Jets Constituents Normalized', plotname='{}plot_pf_feats_norm_{}'.format(fig_dir,params.proc), legend=[params.proc], ylogscale=True)
@@ -159,7 +159,7 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 # *******************************************************
 optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate)
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr)
-loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=[])
+loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=train_dataset.scaler.idx_gev if isinstance(train_dataset.scaler,uscaler.BasicAndLogStandardizer) else [])
 
 # *******************************************************
 #                       train and save
@@ -168,7 +168,6 @@ print('>>> Launching Training')
 # Training loop
 stale_epochs = 0
 loss = 999999
-
 
 train_losses, valid_losses = {},{}
 for what in 'tot,reco,kl'.split(','):
@@ -196,7 +195,8 @@ if multi_gpu:
 stale_epochs = 0
 loss = best_valid_loss
 epoch=0
-for epoch in range(start_epoch, params.n_epochs):
+for epoch in range(0, 0):
+#for epoch in range(start_epoch, params.n_epochs):
     loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
     valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
 
@@ -245,9 +245,10 @@ if multi_gpu:
     model = DataParallel(model)
 model.to(device)
 
-print('>>> Plotting input/output reco')
+print('>>> Plotting input/output reco and latent space')
 inverse_standardization = True
 plot_scale = 'all_mseconv'
-plot.plot_reco_for_loader(model, train_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
-plot.plot_reco_for_loader(model, valid_loader, device,train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
+plot.plot_reco_latent_for_loader(model, train_loader, device, train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'train'), plot_scale)
+plot.plot_reco_latent_for_loader(model, valid_loader, device,train_dataset.scaler, inverse_standardization, settings.model_name, osp.join(fig_dir, 'reconstruction_post_train', 'valid'), plot_scale)
 print('>>> Completed')
+
