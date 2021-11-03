@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import models_torch.losses as losses
 import utils_torch.scaler
-from utils_torch.scaler import BasicStandardizer,Standardizer,BasicAndLogStandardizer
+from utils_torch.scaler import BasicStandardizer,Standardizer
 sys.path.append(os.path.abspath(os.path.join('..')))
 import vande.util.util_plotting as vande_plot
 
@@ -65,12 +65,10 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
             bins = np.linspace(-2, 2, 101)
             if i == 0:  # different bin size for pt rel
                 bins = np.linspace(-0.05, 0.1, 101)
-        elif 'norm' in feature :
-            bins = np.linspace(-1, 1, 50)
         elif 'all' in feature :
             bins = np.linspace(-20, 20, 50)
             if i > 3:  # different bin size for hadronic coord
-                bins = np.linspace(-2, 2, 50)
+                bins = np.linspace(-3.5, 3.5, 50)
             if i == 3:  # different bin size for E momentum
                 bins = np.linspace(-5, 35, 50)
             if i == 4:  # different bin size for pt rel
@@ -165,7 +163,7 @@ def gen_in_out_latent(model, loader, device):
     if len(out)==6:
         z_0_fts = torch.cat(z_0_fts)
         z_last_fts = torch.cat(z_last_fts)
-    return (input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
+    return (input_fts.cpu(),reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
 
 
 @torch.no_grad()
@@ -217,9 +215,9 @@ def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fna
 
 def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
     input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts = gen_in_out_latent(model, loader, device)
-    vande_plot.plot_2dhist( z_0_fts.numpy(), 'Dim. 0', 'Dim. 1', 'Before Normalizing Flows', plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
-    vande_plot.plot_2dhist( z_last_fts.numpy() , 'Dim. 0', 'Dim. 1', 'After Normalizing Flows', plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
-    return 0
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+    vande_plot.plot_2dhist( z_0_fts[:,0].numpy(),z_0_fts[:,1].numpy(), 'Dim. 0', 'Dim. 1', 'Before Normalizing Flows', plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
+    vande_plot.plot_2dhist( z_last_fts[:,0].numpy(),z_last_fts[:,1].numpy() , 'Dim. 0', 'Dim. 1', 'After Normalizing Flows', plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
     if 'mseconv' in feature_format:
         reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
     save_dir_norm = os.path.join(save_dir, 'normalized/')
@@ -229,7 +227,7 @@ def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, mo
         if isinstance(scaler,Standardizer) :
             input_fts = scaler.inverse_transform(input_fts)
             reco_fts = scaler.inverse_transform(reco_fts)
-        elif isinstance(scaler,BasicStandardizer) or isinstance(scaler,BasicAndLogStandardizer) :
+        elif isinstance(scaler,BasicStandardizer) :
             input_fts = scaler.inverse_transform(input_fts)
             reco_fts = scaler.inverse_transform(reco_fts)
         plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)

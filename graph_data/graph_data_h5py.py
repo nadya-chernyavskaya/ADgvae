@@ -141,8 +141,10 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
     def set_up_scaler(self):
         self.idx_gev = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'pt,E,px,py,pz'.split(',')]
         self.idx_coord = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'eta,phi'.split(',')]
+        self.idx_log = [self.pf_kin_names_model.index(f) for f in self.pf_kin_names_model if f in 'pt,E'.split(',')]
         self.scaler.idx_gev = self.idx_gev
         self.scaler.idx_coord = self.idx_coord
+        self.scaler.idx_log = self.idx_log
 
     def download(self):
         # Download to `self.raw_dir`.

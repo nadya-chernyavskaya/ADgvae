@@ -46,8 +46,8 @@ num_workers = 0
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
- n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience plotting generator')
-params = RunParameters(run_n=9, 
+ n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
+params = RunParameters(run_n=16, 
                        n_epochs=50, 
                        train_total_n=int(3e5 ),  #2e6 
                        valid_total_n=int(1e5), #1e5
@@ -56,7 +56,9 @@ params = RunParameters(run_n=9,
                        learning_rate=0.001,
                        min_lr=10e-7,
                        patience=6,
-                       plotting=True,
+                       min_delta=0.01,
+                       adam_betas=(0.99,0.9999), #0.7, 0.9 #default (0.9, 0.999)
+                       plotting=False,
                        generator=1) 
 
 #Parameters for the graph dataset
@@ -75,9 +77,9 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
-                     output_dim=7,
-                     loss_func = 'vae_loss_mse',  #  vae_loss_mse'vae_loss_mse_coord',
-                     standardizer=uscaler.BasicStandardizer(),  #BasicStandardizer BasicAndLogStandardizer
+                     output_dim=3, #3 or 7 
+                     loss_func = 'vae_loss_mse_coord',  #  vae_loss_mse vae_loss_mse_coord',
+                     standardizer=uscaler.BasicStandardizer(),  
                      big_dim=32,
                      hidden_dim=2,
                      beta=0.5,
@@ -157,9 +159,9 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 # *******************************************************
 #                       training options
 # *******************************************************
-optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr)
-loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=train_dataset.scaler.idx_gev if isinstance(train_dataset.scaler,uscaler.BasicAndLogStandardizer) else [])
+optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate, betas=params.adam_betas)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr,verbose=True)
+loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=train_dataset.scaler.idx_log)
 
 # *******************************************************
 #                       train and save
@@ -195,8 +197,8 @@ if multi_gpu:
 stale_epochs = 0
 loss = best_valid_loss
 epoch=0
-for epoch in range(0, 0):
-#for epoch in range(start_epoch, params.n_epochs):
+#for epoch in range(0, 0):
+for epoch in range(start_epoch, params.n_epochs):
     loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
     valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
 
@@ -209,8 +211,8 @@ for epoch in range(0, 0):
     valid_losses['kl'].append(valid_loss_kl)
     print('Epoch: {:02d}, Training Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, loss,loss_reco,loss_kl))
     print('Epoch: {:02d}, Validation Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, valid_loss,valid_loss_reco,valid_loss_kl))
-
-    if valid_loss < best_valid_loss:
+###### early stopping implemnetation for a decresing metric (loss) ####
+    if valid_loss - params.min_delta < best_valid_loss:
         best_valid_loss = valid_loss
         print('New best model saved to:',modpath)
         if multi_gpu:
@@ -226,6 +228,9 @@ for epoch in range(0, 0):
         print('Early stopping after %i stale epochs'%params.patience)
         break
 
+
+  
+
 end_time = time.time()
 print(f">>> Runtime of the training is {end_time - start_time}")
 
@@ -235,6 +240,7 @@ if epoch!=0:
     early_stop_epoch = epoch - stale_epochs
     for what in 'tot,reco,kl'.split(','):
      plot.loss_curves(train_epochs, early_stop_epoch, train_losses[what], valid_losses[what], experiment.model_dir, fig_name=what)
+
 
 # load best model
 del model

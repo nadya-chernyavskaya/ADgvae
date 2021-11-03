@@ -129,28 +129,28 @@ class PlanarEdgeNetVAE(nn.Module):
         )
 
 
-        encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
-                               activation,
-                               nn.Linear(big_dim, big_dim),
-                               activation
-        )
-        decoder_nn = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
-                               activation,
-                               nn.Linear(big_dim, big_dim),
-                               activation,
-                               nn.Linear(big_dim, output_dim)
-        )
-        self.encoder = EdgeConv(nn=encoder_nn,aggr=aggr)
-        self.decoder = EdgeConv(nn=decoder_nn,aggr=aggr)
+        #encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
+        #                       activation,
+        #                       nn.Linear(big_dim, big_dim),
+        #                       activation
+        #)
+        #decoder_nn = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
+        #                       activation,
+        #                       nn.Linear(big_dim, big_dim),
+        #                       activation,
+        #                       nn.Linear(big_dim, output_dim)
+        #)
+        #self.encoder = EdgeConv(nn=encoder_nn,aggr=aggr)
+        #self.decoder = EdgeConv(nn=decoder_nn,aggr=aggr)
 
         self.mu_layer = nn.Linear(big_dim, hidden_dim)
         self.var_layer = nn.Linear(big_dim, hidden_dim)
         self.batchnorm = nn.BatchNorm1d(input_dim)
 
-        #self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
-        #self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
-        #self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
-        #self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
+        self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
+        self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
+        self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
+        self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
     
 
         # Initialize log-det-jacobian to zero
@@ -175,9 +175,9 @@ class PlanarEdgeNetVAE(nn.Module):
 
     def encode(self, x, edge_index):
         batch_size = x.size(0)
-        x = self.encoder(x,edge_index)
-        #x = self.encoder_1(x,edge_index)
-        #x = self.encoder_2(x,edge_index)
+        #x = self.encoder(x,edge_index)
+        x = self.encoder_1(x,edge_index)
+        x = self.encoder_2(x,edge_index)
         mu = self.mu_layer(x)
         log_var = self.var_layer(x)      
 
@@ -205,9 +205,9 @@ class PlanarEdgeNetVAE(nn.Module):
             z.append(z_k)
             self.log_det_j += log_det_jacobian
 
-        x_decoded = self.decoder(z[-1],data.edge_index)
-        #x_decoded = self.decoder_1(z[-1],data.edge_index)
-        #x_decoded = self.decoder_2(x_decoded,data.edge_index)
+        #x_decoded = self.decoder(z[-1],data.edge_index)
+        x_decoded = self.decoder_1(z[-1],data.edge_index)
+        x_decoded = self.decoder_2(x_decoded,data.edge_index)
 
         return x_decoded, mu, log_var, self.log_det_j, z[0], z[-1]
 

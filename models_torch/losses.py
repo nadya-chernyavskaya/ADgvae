@@ -7,6 +7,7 @@ import os.path as osp
 import torch.nn.functional as F
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
+import math
 
 multi_gpu = torch.cuda.device_count()>1
 eps = 1e-12
@@ -26,7 +27,8 @@ from px, py, pz, E to pt,eta, phi
     #y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi]
     y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],E,pt,eta,phi]
     if len(log_idx)!=0:
-        y_out[log_idx] = torch.log(y_out[log_idx] + 1)
+        for idx in log_idx:
+            y_out[idx] = torch.where((y_out[idx] + 1)>0, torch.log(y_out[idx] + 1),torch.zeros_like(y_out[idx]))
     #relu =  m = nn.ReLU() #inplace=True  #This is actually not needed for E if min-max normalization is used for pt,E, AND!! relu is used as an activation function.
    # y_E_trimmed = relu(y[:,E_idx]) #trimming E
     #y_pt_trimmed = relu(pt) #trimming pt
@@ -46,15 +48,20 @@ class LossFunction:
         self.beta = beta
         self.log_idx = log_idx
         
-    def mse(self, x, y):
+    def mse(self, y, x):#for some reason convension is : out,in
+        PX_idx, PY_idx, PZ_idx, E_idx, PT_idx, ETA_idx, PHI_idx = range(7)
+        #tricks for eta and phi
+        y_phi = math.pi*torch.tanh(y[:,PHI_idx])
+        y_eta = 2.5*torch.tanh(y[:,ETA_idx])
+        full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y[:,PT_idx],y_eta,y_phi), dim=1)
         return F.mse_loss(x, y, reduction='mean')
     
     def mse_coordinates(self, y,x): #for some reason convension is : out,in
         #From px,py,pz,E get pt, eta, phi (do not predict them)
         #x is px,py,pz,E,pt,eta,phi
-        #y is px,py,pz,E
+        #y is px,py,pz
         full_y = xyze_to_ptetaphi_torch(y,log_idx = self.log_idx) 
-        return self.mse(x,full_y)
+        return self.mse(full_y,x)
 
     # Reconstruction + KL divergence losses
     def vae_loss_mse_coord(self, y,x, mu, logvar):
