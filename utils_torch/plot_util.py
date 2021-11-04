@@ -40,6 +40,7 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         input_fts = input_fts.numpy()
     if isinstance(reco_fts, torch.Tensor):
         reco_fts = reco_fts.numpy()
+    rel_diff = (reco_fts - input_fts) / (input_fts + 1e-12)
 
         
     Path(save_path).mkdir(parents=True, exist_ok=True)
@@ -58,7 +59,6 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         
     # make a separate plot for each feature
     for i in range(input_fts.shape[1]):
-        print('Plotting feature ',i)
         plt.figure(figsize=(10,8))
         if feature == 'cartesian':
             bins = np.linspace(-20, 20, 101)
@@ -87,6 +87,26 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         plt.tight_layout()
         plt.savefig(osp.join(save_path, feat[i] + '.png'))
         plt.close()
+
+        #plt.figure(figsize=(10,8))
+        fig, ax = plt.subplots()
+        bins = np.linspace(-5,5, 30)
+        plt.ticklabel_format(useMathText=True)
+        plt.semilogy( nonpositive='clip')
+        plt.hist(rel_diff[:,i], bins=bins, alpha=0.5, histtype='step', lw=5)
+        plt.title(title)
+        plt.xlabel('{}'.format(label[i].replace('~[GeV]','')+r' ,$\frac{Reco-In}{In}$'), fontsize='x-large')
+        plt.ylabel('Particles', fontsize='x-large')
+        prop_str = '\n'.join((
+      #  r'$\mu=%.3f$' % (np.nanmean(rel_diff[:,i]), ),
+        r'$\mathrm{median}=%.3f$' % (np.median(rel_diff[:,i]), ),
+        r'$(q_{0.75}-q_{0.25})/2=%.3f$' % ((np.quantile(rel_diff[:,i],0.75 )-np.quantile(rel_diff[:,i],0.25 ))/2.)))
+        plt.text(0.95, 0.95, prop_str,transform=ax.transAxes,
+        verticalalignment='top', horizontalalignment='right', fontsize=16)
+        plt.tight_layout()
+        plt.savefig(osp.join(save_path, feat[i] + '_rel_diff.png'))
+        plt.close()
+
     
 
 @torch.no_grad()

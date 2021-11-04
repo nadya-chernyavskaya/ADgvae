@@ -87,6 +87,8 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
     reco_fts = []
     z_0_fts = []
     z_last_fts = []
+    mu_fts=[]
+    log_var_fts=[]
     truth_bit_fts = []
 
     event = 0
@@ -140,6 +142,10 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
             input_fts.append(jets_x[1::2])
             reco_fts.append(jets_rec[::2])
             reco_fts.append(jets_rec[1::2])
+            mu_fts.append(mu[::2])
+            mu_fts.append(mu[1::2])
+            log_var_fts.append(log_var[::2])
+            log_var_fts.append(log_var[1::2])
             if len(out)==6:
                 z_0_fts.append(z_0[::2])
                 z_0_fts.append(z_0[1::2])
@@ -150,4 +156,4 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
 
             event += njets/2
     # return pytorch tensors
-    return torch.cat(jets_proc_data), torch.cat(input_fts), torch.cat(reco_fts),torch.cat(z_0_fts),torch.cat(z_last_fts),torch.cat(truth_bit_fts)
+    return torch.cat(jets_proc_data), torch.cat(input_fts), torch.cat(reco_fts),torch.cat(z_0_fts),torch.cat(z_last_fts),torch.cat(mu_fts),torch.cat(log_var_fts),torch.cat(truth_bit_fts)

@@ -116,7 +116,7 @@ procs_signals = {key: value for key, value in procs_all.items() if value > 0}
 
 save_path = os.path.join(experiment.model_dir, 'predicted_data/')
 pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
-overwrite = False
+overwrite = True
 #if not osp.isfile(osp.join(save_path,'predicted_df_signal.pkl')) or overwrite:
 if overwrite:
     print('>>> Preparing data')
@@ -133,7 +133,7 @@ if overwrite:
 
     jet_kin_names = signal_dataset.jet_kin_names_model
     for loader,name in zip([signal_loader,qcd_loader],['signal','qcd']):
-        proc_jets, input_fts, reco_fts, z_0_fts,z_last_fts,truth_bit = analysis.process(loader, model, loss_ftn_obj,jet_kin_names)
+        proc_jets, input_fts, reco_fts, z_0_fts,z_last_fts,mu_fts,log_var_fts,truth_bit = analysis.process(loader, model, loss_ftn_obj,jet_kin_names)
         df = analysis.get_df(proc_jets)
         df.to_pickle(osp.join(save_path,'predicted_df_{}.pkl'.format(name)))
         with h5py.File(osp.join(save_path, 'predicted_output_{}.h5'.format(name)), 'w') as outFile:
@@ -141,15 +141,18 @@ if overwrite:
             outFile.create_dataset('input_fts', data=input_fts.cpu(), compression='gzip')
             outFile.create_dataset('z_0_fts', data=z_0_fts.cpu(), compression='gzip')
             outFile.create_dataset('z_last_fts', data=z_last_fts.cpu(), compression='gzip')
+            outFile.create_dataset('mu_fts', data=mu_fts.cpu(), compression='gzip')
+            outFile.create_dataset('log_var_fts', data=log_var_fts.cpu(), compression='gzip')
             outFile.create_dataset('truth_bit', data=truth_bit.cpu(), compression='gzip')
+    exit()
 else:
     print("Using preprocessed dictionary")
     fig_dir = os.path.join(experiment.model_dir, 'predicted_figs/')
     pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
     df_signal = pd.read_pickle(osp.join(save_path,'predicted_df_signal.pkl'))
     df_qcd = pd.read_pickle(osp.join(save_path,'predicted_df_qcd.pkl'))
-    pred_sig = h5py.File(osp.join(save_path,'predicted_output_signal.h5'),'r')
-    pred_qcd = h5py.File(osp.join(save_path,'predicted_output_qcd.h5'),'r')
+    pred_sig = h5py.File(osp.join(save_path,'predicted_output_signal.h5'),'r',driver='core',backing_store=False)
+    pred_qcd = h5py.File(osp.join(save_path,'predicted_output_qcd.h5'),'r',driver='core',backing_store=False)
 
 
 
@@ -160,9 +163,10 @@ else:
     feature_format = 'all_mse' #should be configurable above
     for proc, proc_bit in procs_dict.items(): 
         input_file = pred_sig if proc!='QCD' else pred_qcd
-        mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)
-        plot.plot_reco(np.array(input_file['input_fts'][mask][0:2e3]), np.array(input_file['reco_feats'][mask][0:2e3]),scaler, True, model_fname, osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')), feature_format,title=proc)
-        plot.plot_latent(np.array(input_file['z_0_fts'][mask][0:2e3]),np.array(input_file['z_last_fts'][mask][0:2e3]),osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')),title=proc)
+        mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)[0]
+        plot_stat = int(2e4)
+        plot.plot_reco(np.array(input_file['input_fts'])[mask][0:plot_stat], np.array(input_file['reco_feats'])[mask][0:plot_stat],scaler, True, model_fname, osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')), feature_format,title=proc)
+        plot.plot_latent(np.array(input_file['z_0_fts'])[mask][0:plot_stat],np.array(input_file['z_last_fts'])[mask][0:plot_stat],osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')),title=proc)
         #jets
         input_df = df_signal if proc!='QCD' else df_qcd
         for loss in losses:
@@ -178,8 +182,8 @@ else:
                 input_df = df_signal if proc!='QCD' else df_qcd
                 mask = input_df['truth_bit'].astype(int)==proc_bit
                 datas.append(input_df['{}_{}'.format(loss,jet)][mask])
-            vande_plot.plot_hist_many(datas, '{}, jet {}'.format(loss,jet).replace('_',' ') ,'Normalized Dist.' , '', plotname='{}plot_{}_jet{}'.format(fig_dir,loss,jet), legend=list(procs_dict.keys()), ylogscale=True)
-
+            vande_plot.plot_hist_many(datas, '{}, jet {}'.format(loss,jet).replace('_',' ') ,'Normalized Dist.' , '', plotname='{}plot_{}_jet{}_log'.format(fig_dir,loss,jet), legend=list(procs_dict.keys()), ylogscale=True)
+            vande_plot.plot_hist_many(datas, '{}, jet {}'.format(loss,jet).replace('_',' ') ,'Normalized Dist.' , '', plotname='{}plot_{}_jet{}'.format(fig_dir,loss,jet), legend=list(procs_dict.keys()), ylogscale=False)
 
     print('Plotting ROCs')
     for loss in losses:
