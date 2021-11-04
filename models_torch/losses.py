@@ -18,6 +18,8 @@ def xyze_to_ptetaphi_torch(y,log_idx=[]):
     ''' converts an array [N x 100, 4] of particles
 from px, py, pz, E to pt,eta, phi
     '''
+    if not isinstance(y, torch.Tensor):
+        y = torch.from_numpy(y).type(torch.float32)
     PX_idx, PY_idx, PZ_idx, E_idx = range(4)
     pt =torch.sqrt(torch.pow(y[:,PX_idx], 2) + torch.pow(y[:,PY_idx], 2)) 
     eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))

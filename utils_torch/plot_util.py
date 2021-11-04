@@ -14,19 +14,21 @@ import vande.util.util_plotting as vande_plot
 plt_style = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigstyle.mplstyle'
 plt.style.use(plt_style)
 
-def loss_distr(losses, save_name):
+def loss_distr(losses, save_name,title=''):
     """
         Plot distribution of losses
     """
     plt.figure(figsize=(6,4.4))
     plt.hist(losses,bins=np.linspace(0, 600, 101))
+    if title!='':
+        plt.title( title, fontsize=16 )
     plt.xlabel('Loss', fontsize=16)
     plt.ylabel('Jets', fontsize=16)
     plt.savefig(osp.join(save_name+'.pdf'))
     plt.close()
 
 
-def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='hadronic'):
+def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='hadronic',title='QCD dataset'):
     """
     Plot the difference between the autoencoder's reconstruction and the original input
     Args:
@@ -56,6 +58,7 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         
     # make a separate plot for each feature
     for i in range(input_fts.shape[1]):
+        print('Plotting feature ',i)
         plt.figure(figsize=(10,8))
         if feature == 'cartesian':
             bins = np.linspace(-20, 20, 101)
@@ -78,7 +81,7 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
         plt.ticklabel_format(useMathText=True)
         plt.hist(input_fts[:,i], bins=bins, alpha=0.5, label='Input', histtype='step', lw=5)
         plt.hist(reco_fts[:,i], bins=bins, alpha=0.5, label='Output', histtype='step', lw=5)
-        plt.legend(title='QCD dataset',fontsize=20,bbox_to_anchor=(1., 1.))# fontsize='x-large'
+        plt.legend(title=title,fontsize=20,bbox_to_anchor=(1., 1.))# fontsize='x-large'
         plt.xlabel(label[i], fontsize='x-large')
         plt.ylabel('Particles', fontsize='x-large')
         plt.tight_layout()
@@ -195,34 +198,17 @@ def eval_loss(model, loader, device):
     return input_fts, reco_fts
 
 
-def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
+def plot_reco_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format,title='QCD dataset'):
     input_fts, reco_fts = gen_in_out(model, loader, device)
+    plot_reco(input_fts, reco_fts,scaler, inverse_scale, model_fname, save_dir, feature_format,title=title)
+
+def plot_reco(input_fts, reco_fts,scaler, inverse_scale, model_fname, save_dir, feature_format,title='QCD dataset'):
     if 'mseconv' in feature_format:
         reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
-    save_dir_norm = os.path.join(save_dir, 'normalized/')
-    Path(save_dir_norm).mkdir(parents=True, exist_ok=True)
-    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir_norm, feature_format)
-    if inverse_scale:
-        if isinstance(scaler,Standardizer) :
-            input_fts = scaler.inverse_transform(input_fts)
-            reco_fts = scaler.inverse_transform(reco_fts)
-        elif isinstance(scaler,BasicStandardizer) :
-            input_fts = scaler.inverse_transform(input_fts)
-            reco_fts = scaler.inverse_transform(reco_fts)
-        plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
-
-
-
-def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format):
-    input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts = gen_in_out_latent(model, loader, device)
     Path(save_dir).mkdir(parents=True, exist_ok=True)
-    vande_plot.plot_2dhist( z_0_fts[:,0].numpy(),z_0_fts[:,1].numpy(), 'Dim. 0', 'Dim. 1', 'Before Normalizing Flows', plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
-    vande_plot.plot_2dhist( z_last_fts[:,0].numpy(),z_last_fts[:,1].numpy() , 'Dim. 0', 'Dim. 1', 'After Normalizing Flows', plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
-    if 'mseconv' in feature_format:
-        reco_fts = losses.xyze_to_ptetaphi_torch(reco_fts)
     save_dir_norm = os.path.join(save_dir, 'normalized/')
     Path(save_dir_norm).mkdir(parents=True, exist_ok=True)
-    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir_norm, feature_format)
+    plot_reco_difference(input_fts, reco_fts, model_fname, save_dir_norm, feature_format,title=title)
     if inverse_scale:
         if isinstance(scaler,Standardizer) :
             input_fts = scaler.inverse_transform(input_fts)
@@ -230,8 +216,18 @@ def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, mo
         elif isinstance(scaler,BasicStandardizer) :
             input_fts = scaler.inverse_transform(input_fts)
             reco_fts = scaler.inverse_transform(reco_fts)
-        plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format)
+        plot_reco_difference(input_fts, reco_fts, model_fname, save_dir, feature_format,title=title)
 
+def plot_latent(z_0_fts,z_last_fts,save_dir,title='QCD dataset'):
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+    vande_plot.plot_2dhist( z_0_fts[:,0],z_0_fts[:,1], 'Dim. 0', 'Dim. 1','{}, Before Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
+    vande_plot.plot_2dhist( z_last_fts[:,0],z_last_fts[:,1] , 'Dim. 0', 'Dim. 1', '{}, After Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
+
+def plot_reco_latent_for_loader(model, loader, device, scaler, inverse_scale, model_fname, save_dir, feature_format,title='QCD dataset'):
+    input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts = gen_in_out_latent(model, loader, device)
+    plot_latent(z_0_fts,z_last_fts,save_dir,title=title)
+    plot_reco(input_fts, reco_fts,scaler, inverse_scale, model_fname, save_dir, feature_format,title=title)
 
 
 def loss_curves(epochs, early_stop_epoch, train_loss, valid_loss, save_path, fig_name=''):
