@@ -11,7 +11,7 @@ import vande.analysis.analysis_roc as ar
 import pofah.util.experiment as expe
 
 import models_torch.models as models
-import models_torch.losses as losses
+import models_torch.losses as torch_losses
 import utils_torch.scaler
 import utils_torch.preprocessing as prepr
 import utils_torch.plot_util as plot
@@ -64,7 +64,7 @@ with open(os.path.join(experiment.model_dir,'scaler.pkl'), 'rb') as outp:
 RunParameters = namedtuple('RunParameters', saved_params)
 params = RunParameters(**saved_params)
 
-loss_ftn_obj = losses.LossFunction(params.loss_func)
+loss_ftn_obj = torch_losses.LossFunction(params.loss_func)
 model_path = osp.join(experiment.model_dir, params.model_name+'.best.pth')
 model_fname = params.model_name
 model =  getattr(models, params.model_name)(input_dim=params.input_dim,output_dim=params.output_dim, big_dim=params.big_dim, hidden_dim=params.hidden_dim)
@@ -116,7 +116,7 @@ procs_signals = {key: value for key, value in procs_all.items() if value > 0}
 
 save_path = os.path.join(experiment.model_dir, 'predicted_data/')
 pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
-overwrite = True
+overwrite = False
 #if not osp.isfile(osp.join(save_path,'predicted_df_signal.pkl')) or overwrite:
 if overwrite:
     print('>>> Preparing data')
@@ -161,18 +161,30 @@ else:
         losses+=['loss_tot','loss_kl']
 
     feature_format = 'all_mse' #should be configurable above
+    mu_datas,log_var_data,kl_losses_manual = [],[],[]
     for proc, proc_bit in procs_dict.items(): 
         input_file = pred_sig if proc!='QCD' else pred_qcd
         mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)[0]
         plot_stat = int(2e4)
         plot.plot_reco(np.array(input_file['input_fts'])[mask][0:plot_stat], np.array(input_file['reco_feats'])[mask][0:plot_stat],scaler, True, model_fname, osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')), feature_format,title=proc)
         plot.plot_latent(np.array(input_file['z_0_fts'])[mask][0:plot_stat],np.array(input_file['z_last_fts'])[mask][0:plot_stat],osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')),title=proc)
+        #plot mu and sigma
+        mu = np.array(input_file['mu_fts'])[mask][0:plot_stat]
+        log_var = np.array(input_file['log_var_fts'])[mask][0:plot_stat]
+        mu_datas.append(mu)
+        log_var_data.append(log_var)
+        kl_losses_manual.append(torch_losses.kl_loss_manual(mu,log_var))
         #jets
         input_df = df_signal if proc!='QCD' else df_qcd
         for loss in losses:
             input_df['{}_sum'.format(loss)] = input_df['{}_1'.format(loss)]+input_df['{}_2'.format(loss)]
             input_df['{}_min'.format(loss)] = np.minimum(input_df['{}_1'.format(loss)],input_df['{}_2'.format(loss)])
             input_df['{}_max'.format(loss)] = np.maximum(input_df['{}_1'.format(loss)],input_df['{}_2'.format(loss)])
+    vande_plot.plot_features(np.array(mu_datas),'Gauss mu'  ,'Normalized' , '', plotname='{}plot_mu'.format(fig_dir), legend=list(procs_dict.keys()), ylogscale=True)
+    vande_plot.plot_features(np.array(log_var_data), 'Gauss log sigma'  ,'Normalized' , '', plotname='{}plot_log_var'.format(fig_dir), legend=list(procs_dict.keys()), ylogscale=True)
+    vande_plot.plot_hist_many(np.array(kl_losses_manual), 'KL loss manual'  ,'Normalized' , '', plotname='{}plot_kl_loss_manual'.format(fig_dir), legend=list(procs_dict.keys()), ylogscale=True)
+
+
 
     print('Plotting losses')
     for loss in losses:

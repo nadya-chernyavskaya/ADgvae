@@ -121,7 +121,7 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
             truth_bit_per_const = []
             for ib in torch.unique(batch):
                 if  'vae_loss' in loss_ftn_obj.name:
-                    losses_tot[ib],losses_reco[ib],losses_kl[ib] = loss_ftn_obj.loss_ftn(jets_rec[batch==ib], jets_x[batch==ib], mu, log_var)
+                    losses_tot[ib],losses_reco[ib],losses_kl[ib] = loss_ftn_obj.loss_ftn(jets_rec[batch==ib], jets_x[batch==ib], mu[batch==ib], log_var[batch==ib])
                 elif 'mse' in loss_ftn_obj.name:
                     losses_tot[ib] = loss_ftn_obj.loss_ftn(jets_rec[batch==ib], jets_x[batch==ib])
                 #saving truth bit for features

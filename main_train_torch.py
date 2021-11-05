@@ -47,16 +47,16 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=18, 
-                       n_epochs=100, 
+params = RunParameters(run_n=19, 
+                       n_epochs=80, 
                        train_total_n=int(1e6 ),  #2e6 
                        valid_total_n=int(2e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
-                       learning_rate=0.001,
+                       learning_rate=0.01,
                        min_lr=10e-7,
                        patience=6,
-                       min_delta=0.01,
+                       min_delta=0.005,
                        adam_betas=(0.7,0.9), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
@@ -77,13 +77,13 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
-                     output_dim=7, #3 or 7 
-                     loss_func = 'vae_loss_mse',  #  vae_loss_mse vae_loss_mse_coord',
+                     output_dim=3, #3 or 7 
+                     loss_func = 'vae_loss_mse_coord',  #  vae_loss_mse vae_loss_mse_coord',
                      standardizer=uscaler.BasicStandardizer(),  
                      big_dim=32,
                      hidden_dim=2,
                      beta=0.5,
-                     activation=nn.ReLU(),#nn.LeakyReLU(0.1),
+                     activation=nn.ReLU(),#nn.ReLU(),#nn.LeakyReLU(0.1),
                      initializer='') #not yet set up 
 
 

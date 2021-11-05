@@ -13,6 +13,21 @@ multi_gpu = torch.cuda.device_count()>1
 eps = 1e-12
 torch.autograd.set_detect_anomaly(True)
 
+def kl_loss_manual(z_mean,z_log_var):
+    kl = 1. + z_log_var - np.square(z_mean) - np.exp(z_log_var)
+    kl = -0.5 * np.mean(kl, axis=-1)
+    return np.array(kl)
+
+
+def mse_manual(self, y, x):#for some reason convension is : out,in
+    PX_idx, PY_idx, PZ_idx, E_idx, PT_idx, ETA_idx, PHI_idx = range(7)
+    y_phi = math.pi*np.tanh(y[:,PHI_idx])
+    y_eta = 2.5*np.tanh(y[:,ETA_idx])
+    full_y = np.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y[:,PT_idx],y_eta,y_phi), axis=1)
+    mse_loss = np.mean( np.square(x-y), axis=-1)
+    return np.array(mse_loss)
+
+
 
 def xyze_to_ptetaphi_torch(y,log_idx=[]):
     ''' converts an array [N x 100, 4] of particles
@@ -68,16 +83,13 @@ class LossFunction:
     # Reconstruction + KL divergence losses
     def vae_loss_mse_coord(self, y,x, mu, logvar):
         MSE = self.mse_coordinates(y,x)
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        #KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
         return (1-self.beta)*MSE + self.beta*KLD, MSE, KLD
         
+
     # Reconstruction + KL divergence losses
     def vae_loss_mse(self, x, y, mu, logvar):
         MSE = self.mse(y,x)
-        # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-        #KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
         return (1-self.beta)*MSE + self.beta*KLD, MSE, KLD
 

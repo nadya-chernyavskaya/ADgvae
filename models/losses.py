@@ -42,6 +42,6 @@ def mse_loss_manual(inputs, outputs):
 
 def kl_loss_manual(z_mean,z_log_var):
     kl = 1. + z_log_var - np.square(z_mean) - np.exp(z_log_var)
-    kl = -0.5 * np.sum(kl, axis=-1)
+    kl = -0.5 * np.mean(kl, axis=-1)
     return np.array(kl)
 
