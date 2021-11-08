@@ -343,7 +343,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         idx_in_file = idx - self.strides[max(0, file_idx)] 
         if file_idx >= self.strides.size:
             raise Exception(f'{idx} is beyond the end of the event list {self.strides[-1]}')
-        #with h5py.File(self.processed_paths[file_idx],'r') as f:
         if self.current_file_idx != file_idx:
             self.current_file_idx = file_idx
             self.current_in_file.close()
@@ -353,7 +352,6 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         if (idx_in_file >= (self.current_chunk_idx+1)*len(self.current_pytorch_datas)):
             self.current_chunk_idx+=1
             self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
-        idx_in_chunk =  idx_in_file % len(self.current_pytorch_datas)
         #Finally reset everything at the end of an epoch
         if idx==self.len()-1:  
             self.current_file_idx=0
@@ -361,6 +359,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
             self.current_chunk_idx = 0
             self.current_pytorch_datas =self.in_memory_data(shuffle=self.shuffle)
+        idx_in_chunk =  idx_in_file % len(self.current_pytorch_datas)
         return self.current_pytorch_datas[idx_in_chunk]
 
     def get_files(self, idx): #not fast enough because have to prepare Graph Data object

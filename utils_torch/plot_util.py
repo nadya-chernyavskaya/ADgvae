@@ -240,7 +240,10 @@ def plot_reco(input_fts, reco_fts,scaler, inverse_scale, model_fname, save_dir, 
 
 def plot_latent(z_0_fts,z_last_fts,save_dir,title='QCD dataset'):
     Path(save_dir).mkdir(parents=True, exist_ok=True)
-
+    if isinstance(z_0_fts, torch.Tensor):
+        z_0_fts = z_0_fts.numpy()
+    if isinstance(z_last_fts, torch.Tensor):
+        z_last_fts = z_last_fts.numpy()
     vande_plot.plot_2dhist( z_0_fts[:,0],z_0_fts[:,1], 'Dim. 0', 'Dim. 1','{}, Before Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
     vande_plot.plot_2dhist( z_last_fts[:,0],z_last_fts[:,1] , 'Dim. 0', 'Dim. 1', '{}, After Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
 

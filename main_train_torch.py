@@ -32,9 +32,12 @@ plt.style.use('/eos/user/n/nchernya/MLHEP/AnomalyDetection/ADgvae/utils/adfigsty
 import torch
 import torch.nn as nn
 from torch.utils.data import random_split, ConcatDataset
-from torch_geometric.data import Data, DataLoader, DataListLoader
+from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader, DataListLoader
 from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
 import setGPU
+from torch.utils.tensorboard import SummaryWriter
+
 
 torch.manual_seed(0)
 device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
@@ -47,17 +50,17 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=19, 
-                       n_epochs=80, 
-                       train_total_n=int(1e6 ),  #2e6 
-                       valid_total_n=int(2e5), #1e5
+params = RunParameters(run_n=20, 
+                       n_epochs=50, 
+                       train_total_n=int(1e6 ),  #1e6 
+                       valid_total_n=int(1e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
-                       learning_rate=0.01,
+                       learning_rate=0.0005,
                        min_lr=10e-7,
                        patience=6,
                        min_delta=0.005,
-                       adam_betas=(0.7,0.9), #0.7, 0.9 #default (0.9, 0.999)
+                       adam_betas=(0.8,0.9), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
 
@@ -156,6 +159,7 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
     with redirect_stdout(f):
         print(model)
         print(summary.gnn_model_summary(model))
+
 # *******************************************************
 #                       training options
 # *******************************************************
@@ -166,6 +170,9 @@ loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log
 # *******************************************************
 #                       train and save
 # *******************************************************
+tb = SummaryWriter()
+input_data = next(iter(train_loader))
+
 print('>>> Launching Training')
 # Training loop
 stale_epochs = 0
@@ -211,6 +218,17 @@ for epoch in range(start_epoch, params.n_epochs):
     valid_losses['kl'].append(valid_loss_kl)
     print('Epoch: {:02d}, Training Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, loss,loss_reco,loss_kl))
     print('Epoch: {:02d}, Validation Loss Tot, Reco, KL :  {:.4f},{:.4f}, {:.4f}'.format(epoch, valid_loss,valid_loss_reco,valid_loss_kl))
+
+    tb.add_scalar("Training Loss Tot", loss, epoch)
+    tb.add_scalar("Training Loss Reco", loss_reco, epoch)
+    tb.add_scalar("Training Loss KL", loss_kl, epoch)
+    tb.add_scalar("Valid Loss Tot", valid_loss, epoch)
+    tb.add_scalar("Valid Loss Reco", valid_loss_reco, epoch)
+    tb.add_scalar("Valid Loss KL", valid_loss_kl, epoch)
+    for layer_name, weight in model.named_parameters():
+        tb.add_histogram(layer_name,weight, epoch)
+        tb.add_histogram(f'{layer_name}.grad',weight.grad, epoch)
+
 ###### early stopping implemnetation for a decresing metric (loss) ####
     if valid_loss - params.min_delta < best_valid_loss:
         best_valid_loss = valid_loss
@@ -228,8 +246,9 @@ for epoch in range(start_epoch, params.n_epochs):
         print('Early stopping after %i stale epochs'%params.patience)
         break
 
+tb.close()
 
-  
+
 
 end_time = time.time()
 print(f">>> Runtime of the training is {end_time - start_time}")

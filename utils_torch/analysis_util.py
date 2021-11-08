@@ -1,4 +1,4 @@
-import sys
+import sys,os
 import torch
 import torch.nn.functional as F
 import scipy.optimize
@@ -17,9 +17,14 @@ from contextlib import redirect_stdout
 import itertools
 from itertools import chain
 
-random.seed(0)
-np.random.seed(seed=0)
-torch.manual_seed(0)
+
+
+def get_mjj_binned_sample(df, mjj_peak, window_pct=20):
+    left_edge, right_edge = mjj_peak * (1. - window_pct / 100.), mjj_peak * (1. + window_pct / 100.)
+
+    center_bin_df = df[(df['dijet_mass'] >= left_edge) & (df['dijet_mass'] <= right_edge)]
+    return center_bin_df
+
 
 def get_df(proc_jets):
     d = {'loss_tot_1': proc_jets[:,0],
@@ -71,10 +76,14 @@ def invariant_mass_from_ptetaphim(jet1_m, jet1_pt, jet1_eta, jet1_phi, jet2_m, j
     return torch.sqrt(torch.square(jet1_e + jet2_e) - torch.square(jet1_px + jet2_px)
                       - torch.square(jet1_py + jet2_py) - torch.square(jet1_pz + jet2_pz))
     
+def invariant_mass_from_ptetaphim_2(jet1_m, jet1_pt, jet1_eta, jet1_phi, jet2_m, jet2_pt, jet2_eta, jet2_phi): #probably a faster implementation
+    jet1_et = torch.sqrt(torch.square(jet1_pt)+torch.square(jet1_m))
+    jet2_et = torch.sqrt(torch.square(jet2_pt)+torch.square(jet2_m))
+    return torch.sqrt(torch.square(jet1_m)+torch.square(jet2_m)+2*(jet1_et*jet2_et*torch.cosh(jet1_eta-jet2_eta)-jet1_pt*jet2_pt)) #assuming pseudorapidity and rapidity are the same given the practically 0 mass
+    
 
 
-
-def process(data_loader, model, loss_ftn_obj,jet_kin_names):
+def process(data_loader, model, loss_ftn_obj,jet_kin_names,device):
     """
     Use the specified model to determine the reconstruction loss of each sample.
     Also calculate the invariant mass of the jets.
@@ -95,6 +104,9 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
     # for each event in the dataset calculate the loss and inv mass for the leading 2 jets
     with torch.no_grad():
         for k, data_batch in tqdm.tqdm(enumerate(data_loader),total=len(data_loader)):
+            multi_gpu = False #false for now
+            if not multi_gpu:
+                data_batch = data_batch.to(device)
             jets_x = data_batch.x
             batch = data_batch.batch
             jets_u = data_batch.u
@@ -114,9 +126,9 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names):
             dijet_mass = invariant_mass_from_ptetaphim(jets0_u[:,idx_m], jets0_u[:,idx_pt], jets0_u[:,idx_eta], jets0_u[:,idx_phi], #e, px,py,pz
                                         jets1_u[:,idx_m], jets1_u[:,idx_pt], jets1_u[:,idx_eta], jets1_u[:,idx_phi])
             njets = len(torch.unique(batch))
-            losses_tot = torch.zeros((njets), dtype=torch.float32)
-            losses_reco = torch.zeros((njets), dtype=torch.float32)
-            losses_kl = torch.zeros((njets), dtype=torch.float32)
+            losses_tot = torch.zeros((njets), dtype=torch.float32,device=device)
+            losses_reco = torch.zeros((njets), dtype=torch.float32,device=device)
+            losses_kl = torch.zeros((njets), dtype=torch.float32,device=device)
             # calculate loss per each batch (jet)
             truth_bit_per_const = []
             for ib in torch.unique(batch):

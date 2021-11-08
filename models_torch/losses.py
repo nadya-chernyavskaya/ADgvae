@@ -22,7 +22,7 @@ def kl_loss_manual(z_mean,z_log_var):
 def mse_manual(self, y, x):#for some reason convension is : out,in
     PX_idx, PY_idx, PZ_idx, E_idx, PT_idx, ETA_idx, PHI_idx = range(7)
     y_phi = math.pi*np.tanh(y[:,PHI_idx])
-    y_eta = 2.5*np.tanh(y[:,ETA_idx])
+    y_eta = 2.5*np.tanh(y[:,ETA_idx]) #probably should increase this
     full_y = np.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y[:,PT_idx],y_eta,y_phi), axis=1)
     mse_loss = np.mean( np.square(x-y), axis=-1)
     return np.array(mse_loss)
@@ -30,9 +30,6 @@ def mse_manual(self, y, x):#for some reason convension is : out,in
 
 
 def xyze_to_ptetaphi_torch(y,log_idx=[]):
-    ''' converts an array [N x 100, 4] of particles
-from px, py, pz, E to pt,eta, phi
-    '''
     if not isinstance(y, torch.Tensor):
         y = torch.from_numpy(y).type(torch.float32)
     PX_idx, PY_idx, PZ_idx, E_idx = range(4)
