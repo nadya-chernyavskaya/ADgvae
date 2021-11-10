@@ -234,8 +234,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
                 outFile.create_dataset('tot_n_jets', data=[jet_prop.shape[0]], compression='gzip')
                 outFile.create_dataset('pf_cands', data=np.array(pf_cands), compression='gzip')
                 outFile.create_dataset('jet_props', data=np.array(jet_prop), compression='gzip')
-                outFile.create_dataset('jet_props_names', data=jet_kin_names_model, compression='gzip')
-                outFile.create_dataset('pf_cands_names', data=pf_kin_names_model, compression='gzip')
+                outFile.create_dataset('jet_props_names', data=np.char.encode(np.array(self.jet_kin_names_model, type='U'), encoding='utf8'),compression='gzip')
+                outFile.create_dataset('pf_cands_names', data=np.char.encode(np.array(self.pf_kin_names_model, type='U'), encoding='utf8'), compression='gzip')
         else:
             return np.array(pf_cands),np.array(jet_prop)
 
@@ -352,6 +352,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
         if (idx_in_file >= (self.current_chunk_idx+1)*len(self.current_pytorch_datas)):
             self.current_chunk_idx+=1
             self.current_pytorch_datas = self.in_memory_data(shuffle=self.shuffle)
+        idx_in_chunk =  idx_in_file % len(self.current_pytorch_datas)
+        element_to_yield = self.current_pytorch_datas[idx_in_chunk]
         #Finally reset everything at the end of an epoch
         if idx==self.len()-1:  
             self.current_file_idx=0
@@ -359,8 +361,7 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
             self.current_in_file = h5py.File(self.processed_paths[self.current_file_idx],'r',driver='core',backing_store=False)
             self.current_chunk_idx = 0
             self.current_pytorch_datas =self.in_memory_data(shuffle=self.shuffle)
-        idx_in_chunk =  idx_in_file % len(self.current_pytorch_datas)
-        return self.current_pytorch_datas[idx_in_chunk]
+        return element_to_yield
 
     def get_files(self, idx): #not fast enough because have to prepare Graph Data object
         """ Used by PyTorch DataSet class """    

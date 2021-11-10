@@ -35,9 +35,8 @@ from torch.utils.data import random_split, ConcatDataset
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader, DataListLoader
 from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
-import setGPU
 from torch.utils.tensorboard import SummaryWriter
-
+import setGPU
 
 torch.manual_seed(0)
 device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
@@ -50,17 +49,17 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=20, 
+params = RunParameters(run_n=22, 
                        n_epochs=50, 
                        train_total_n=int(1e6 ),  #1e6 
                        valid_total_n=int(1e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
                        learning_rate=0.0005,
-                       min_lr=10e-7,
+                       min_lr=10e-8,
                        patience=6,
-                       min_delta=0.005,
-                       adam_betas=(0.8,0.9), #0.7, 0.9 #default (0.9, 0.999)
+                       min_delta=0.01, #the larger the value, the less sensitive it is 
+                       adam_betas=(0.7,0.9), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
 
@@ -80,13 +79,13 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
-                     output_dim=3, #3 or 7 
-                     loss_func = 'vae_loss_mse_coord',  #  vae_loss_mse vae_loss_mse_coord',
+                     output_dim=7, #3 or 7 
+                     loss_func = 'vae_loss_mse',  #  vae_loss_mse vae_loss_mse_coord',
                      standardizer=uscaler.BasicStandardizer(),  
-                     big_dim=32,
+                     big_dim=62,
                      hidden_dim=2,
                      beta=0.5,
-                     activation=nn.ReLU(),#nn.ReLU(),#nn.LeakyReLU(0.1),
+                     activation=nn.ReLU(), #nn.LeakyReLU(0.1), #nn.ELU(),#nn.ReLU(),
                      initializer='') #not yet set up 
 
 
@@ -170,7 +169,7 @@ loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log
 # *******************************************************
 #                       train and save
 # *******************************************************
-tb = SummaryWriter()
+tb = SummaryWriter(log_dir=osp.join(experiment.model_dir,'tensorboard_logs/'))
 input_data = next(iter(train_loader))
 
 print('>>> Launching Training')
@@ -206,6 +205,7 @@ loss = best_valid_loss
 epoch=0
 #for epoch in range(0, 0):
 for epoch in range(start_epoch, params.n_epochs):
+    modpath_epoch = osp.join(osp.join(experiment.model_dir,'saved_models/'), settings.model_name+'.epoch_{}.pth'.format(epoch))
     loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
     valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
 
@@ -230,21 +230,28 @@ for epoch in range(start_epoch, params.n_epochs):
         tb.add_histogram(f'{layer_name}.grad',weight.grad, epoch)
 
 ###### early stopping implemnetation for a decresing metric (loss) ####
-    if valid_loss - params.min_delta < best_valid_loss:
-        best_valid_loss = valid_loss
-        print('New best model saved to:',modpath)
-        if multi_gpu:
-            torch.save(model.module.state_dict(), modpath)
+    if params.min_delta!=0:
+        if valid_loss - params.min_delta < best_valid_loss:
+            best_valid_loss = valid_loss
+            print('New best model saved to:',modpath)
+            if multi_gpu:
+                torch.save(model.module.state_dict(), modpath)
+            else:
+                torch.save(model.state_dict(), modpath)
+            torch.save((train_losses, valid_losses, epoch+1), osp.join(experiment.model_dir,'losses.pt'))
+            stale_epochs = 0
         else:
-            torch.save(model.state_dict(), modpath)
-        torch.save((train_losses, valid_losses, epoch+1), osp.join(experiment.model_dir,'losses.pt'))
-        stale_epochs = 0
-    else:
-        stale_epochs += 1
-        print(f'Stale epoch: {stale_epochs}\nBest: {best_valid_loss}\nCurr: {valid_loss}')
-    if stale_epochs >= params.patience:
-        print('Early stopping after %i stale epochs'%params.patience)
-        break
+            stale_epochs += 1
+            print(f'Stale epoch: {stale_epochs}\nBest: {best_valid_loss}\nCurr: {valid_loss}')
+        if stale_epochs >= params.patience:
+            print('Early stopping after %i stale epochs'%params.patience)
+            break
+    print('Model saved to:',modpath_epoch) #saving model after each epoch
+    if epoch>10:
+        if multi_gpu:
+            torch.save(model.module.state_dict(), modpath_epoch)
+        else:
+            torch.save(model.state_dict(), modpath_epoch)        
 
 tb.close()
 

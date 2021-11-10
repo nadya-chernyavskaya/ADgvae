@@ -53,7 +53,7 @@ num_workers = 0
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  test_total_n ') 
-in_params = RunParameters(run_n=17, test_total_n=int(2e5)) 
+in_params = RunParameters(run_n=17, test_total_n=int(2e6)) 
 experiment = expe.Experiment(in_params.run_n).setup(model_dir=True, fig_dir=True)
 
 with open(os.path.join(experiment.model_dir,'parameters.json'), 'r') as f_json:
@@ -76,12 +76,12 @@ model.to(device)
 
 
 input_path = '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
-root_path_sig_region_qcd = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/signal_region_qcd/'
+root_path_sig_region_qcd = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/signal_region_qcd_other/'
 root_path_sig_region_non_qcd_bg = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/signal_region_non_qcd_bg/'
 root_path_sig_region_sig = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/signal_region_signals/'    
 input_files_txt = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/signal_region_files.txt'
-input_files_txt_qcd = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/all_files.txt'
-do_preprocessing=False
+input_files_txt_qcd = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/qcd_files_o.txt'
+do_preprocessing=True
 if do_preprocessing:
     print('>>> Preprocessing data')
     #Parameters for the graph dataset
