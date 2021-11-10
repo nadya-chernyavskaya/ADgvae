@@ -234,8 +234,8 @@ class GraphDataset(Dataset):  ####inherits from pytorch geometric Dataset (not j
                 outFile.create_dataset('tot_n_jets', data=[jet_prop.shape[0]], compression='gzip')
                 outFile.create_dataset('pf_cands', data=np.array(pf_cands), compression='gzip')
                 outFile.create_dataset('jet_props', data=np.array(jet_prop), compression='gzip')
-                outFile.create_dataset('jet_props_names', data=np.char.encode(np.array(self.jet_kin_names_model, type='U'), encoding='utf8'),compression='gzip')
-                outFile.create_dataset('pf_cands_names', data=np.char.encode(np.array(self.pf_kin_names_model, type='U'), encoding='utf8'), compression='gzip')
+                outFile.create_dataset('jet_props_names', data=np.char.encode(np.array(self.jet_kin_names_model, dtype='U'), encoding='utf8'),compression='gzip')
+                outFile.create_dataset('pf_cands_names', data=np.char.encode(np.array(self.pf_kin_names_model, dtype='U'), encoding='utf8'), compression='gzip')
         else:
             return np.array(pf_cands),np.array(jet_prop)
 

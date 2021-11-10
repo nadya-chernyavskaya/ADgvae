@@ -196,7 +196,7 @@ else:
     best_valid_loss = 9999999
     model.to(device)
 if multi_gpu:
-    model = DataParallel(model)
+    model = DataParallel(model) #this  should be changed to DistributedDataParallel 
     model.to(device)
 
 # Training loop

@@ -119,12 +119,12 @@ def gen_latent(model, loader, device):
         out = model(t)#tuple
         if len(out)==6:
             _, mu, log_var, _, z_0, z_last = out
-            z_0_fts.append(z_0.cpu().detach())
-            z_last_fts.append(z_last.cpu().detach())
+            z_0_fts.append(z_0.detach())
+            z_last_fts.append(z_last.detach())
         elif len(out)==3:
             _, mu, log_var = out
-        mu_fts.append(mu.cpu().detach())
-        log_var_fts.append(log_var.cpu().detach())
+        mu_fts.append(mu.detach())
+        log_var_fts.append(log_var.detach())
 
     mu_fts = torch.cat(mu_fts)
     log_var_fts = torch.cat(log_var_fts)
@@ -151,7 +151,7 @@ def gen_in_out(model, loader, device):
         reco_out = model(t)
         if isinstance(reco_out, tuple):
             reco_out = reco_out[0]
-        reco_fts.append(reco_out.cpu().detach())
+        reco_fts.append(reco_out.detach())
 
     input_fts = torch.cat(input_fts)
     reco_fts = torch.cat(reco_fts)
@@ -166,18 +166,18 @@ def gen_in_out_latent(model, loader, device):
     reco_fts = []
 
     for t in loader:
-        t.to(device)
         input_fts.append(t.x)
+        t.to(device)
         out = model(t)#tuple
         if len(out)==6:
             reco, mu, log_var, _, z_0, z_last = out
-            z_0_fts.append(z_0.cpu().detach())
-            z_last_fts.append(z_last.cpu().detach())
+            z_0_fts.append(z_0.detach())
+            z_last_fts.append(z_last.detach())
         elif len(out)==3:
             reco, mu, log_var = out
-        mu_fts.append(mu.cpu().detach())
-        log_var_fts.append(log_var.cpu().detach())
-        reco_fts.append(reco.cpu().detach())
+        mu_fts.append(mu.detach())
+        log_var_fts.append(log_var.detach())
+        reco_fts.append(reco.detach())
 
     input_fts = torch.cat(input_fts)
     reco_fts = torch.cat(reco_fts)
@@ -186,7 +186,7 @@ def gen_in_out_latent(model, loader, device):
     if len(out)==6:
         z_0_fts = torch.cat(z_0_fts)
         z_last_fts = torch.cat(z_last_fts)
-    return (input_fts.cpu(),reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
+    return (input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
 
 
 @torch.no_grad()
@@ -210,7 +210,7 @@ def eval_loss(model, loader, device):
 
         else : 
             reco_out_fts = out
-        reco_fts.append(reco_out_fts.cpu().detach())
+        reco_fts.append(reco_out_fts.detach())
 
     input_fts = torch.cat(input_fts)
     reco_fts = torch.cat(reco_fts)

@@ -83,7 +83,7 @@ def invariant_mass_from_ptetaphim_2(jet1_m, jet1_pt, jet1_eta, jet1_phi, jet2_m,
     
 
 
-def process(data_loader, model, loss_ftn_obj,jet_kin_names,device):
+def process(data_loader, model, loss_ftn_obj,jet_kin_names,device,save_every=5e6):
     """
     Use the specified model to determine the reconstruction loss of each sample.
     Also calculate the invariant mass of the jets.
@@ -91,15 +91,13 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names,device):
     model.eval()
 
     # Store the return values
-    jets_proc_data = []
-    input_fts = []
-    reco_fts = []
-    z_0_fts = []
-    z_last_fts = []
-    mu_fts=[]
-    log_var_fts=[]
-    truth_bit_fts = []
+    jets_proc_data,input_fts,reco_fts,truth_bit_fts = [],[],[],[]
+    z_0_fts,z_last_fts,mu_fts,log_var_fts   = [],[],[],[]
 
+    jets_proc_data_cpu,input_fts_cpu,reco_fts_cpu,truth_bit_fts_cpu = [],[],[],[]
+    z_0_fts_cpu,z_last_fts_cpu,mu_fts_cpu,log_var_fts_cpu   = [],[],[],[]
+
+    i_file=0
     event = 0
     # for each event in the dataset calculate the loss and inv mass for the leading 2 jets
     with torch.no_grad():
@@ -150,22 +148,45 @@ def process(data_loader, model, loss_ftn_obj,jet_kin_names,device):
                                      jets1_u[:,idx_truth]],        # the type of process
                                     dim=1)
             jets_proc_data.append(jets_info)
-            input_fts.append(jets_x[::2])
-            input_fts.append(jets_x[1::2])
-            reco_fts.append(jets_rec[::2])
-            reco_fts.append(jets_rec[1::2])
-            mu_fts.append(mu[::2])
-            mu_fts.append(mu[1::2])
-            log_var_fts.append(log_var[::2])
-            log_var_fts.append(log_var[1::2])
+            input_fts.append(jets_x)
+            reco_fts.append(jets_rec)
+            mu_fts.append(mu)
+            log_var_fts.append(log_var)
             if len(out)==6:
-                z_0_fts.append(z_0[::2])
-                z_0_fts.append(z_0[1::2])
-                z_last_fts.append(z_last[::2])
-                z_last_fts.append(z_last[1::2])
+                z_0_fts.append(z_0)
+                z_last_fts.append(z_last)
             truth_bit_per_const = torch.cat(truth_bit_per_const)
             truth_bit_fts.append(truth_bit_per_const)
-
             event += njets/2
+            if (event>=save_every) or (k==len(data_loader)-1):
+                jets_proc_data_cpu.append(torch.cat(jets_proc_data).cpu())
+                input_fts_cpu.append(torch.cat(input_fts).cpu())
+                reco_fts_cpu.append(torch.cat(reco_fts).cpu())
+                z_0_fts_cpu.append(torch.cat(z_0_fts).cpu())
+                z_last_fts_cpu.append(torch.cat(z_last_fts).cpu())
+                mu_fts_cpu.append(torch.cat(mu_fts).cpu())
+                log_var_fts_cpu.append(torch.cat(log_var_fts).cpu())
+                truth_bit_fts_cpu.append(torch.cat(truth_bit_fts).cpu())
+                del jets_proc_data,input_fts,reco_fts,truth_bit_fts
+                del z_0_fts,z_last_fts,mu_fts,log_var_fts
+                jets_proc_data,input_fts,reco_fts,truth_bit_fts = [],[],[],[]
+                z_0_fts,z_last_fts,mu_fts,log_var_fts   = [],[],[],[]
+
+        return np.vstack(jets_proc_data_cpu), np.vstack(input_fts_cpu), np.vstack(reco_fts_cpu),np.vstack(z_0_fts_cpu),np.vstack(z_last_fts_cpu),np.vstack(mu_fts_cpu),np.vstack(log_var_fts_cpu),np.vstack(truth_bit_fts_cpu)
+         #   if (event>=save_every) or (k==len(data_loader)-1):
+         #       df = get_df(torch.cat(jets_proc_data).cpu())
+         #       df.to_pickle(osp.join(save_path,'predicted_df_{}_{}.pkl'.format(outname,ifile)))
+         #       with h5py.File(osp.join(save_path, 'predicted_output_{}_{}.h5'.format(outname,ifile)), 'w') as outFile:
+         #           outFile.create_dataset('reco_feats', data=torch.cat(reco_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('input_fts', data=torch.cat(input_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('z_0_fts', data=torch.cat(z_0_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('z_last_fts', data=torch.cat(z_last_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('mu_fts', data=torch.cat(mu_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('log_var_fts', data=torch.cat(log_var_fts).cpu(), compression='gzip')
+         #           outFile.create_dataset('truth_bit', data=torch.cat(truth_bit).cpu(), compression='gzip')
+         #       jets_proc_data,input_fts,reco_fts,truth_bit_fts = [],[],[],[]
+         #       z_0_fts,z_last_fts,mu_fts,log_var_fts   = [],[],[],[]
+         #       i_file+=1
+
     # return pytorch tensors
-    return torch.cat(jets_proc_data), torch.cat(input_fts), torch.cat(reco_fts),torch.cat(z_0_fts),torch.cat(z_last_fts),torch.cat(mu_fts),torch.cat(log_var_fts),torch.cat(truth_bit_fts)
+    #return torch.cat(jets_proc_data), torch.cat(input_fts), torch.cat(reco_fts),torch.cat(z_0_fts),torch.cat(z_last_fts),torch.cat(mu_fts),torch.cat(log_var_fts),torch.cat(truth_bit_fts)
