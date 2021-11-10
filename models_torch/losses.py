@@ -37,12 +37,15 @@ def xyze_to_ptetaphi_torch(y,log_idx=[]):
     eta = torch.asinh(torch.where(pt < 10e-5, torch.zeros_like(pt), torch.div(y[:,PZ_idx], pt)))
     phi = torch.atan2(y[:,PY_idx], y[:,PX_idx])
     #recalculate E as well
-    E = torch.sqrt(torch.pow(pt,2) + torch.pow(y[:,PZ_idx], 2))
-    #y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi]
-    y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],E,pt,eta,phi]
+    #E = torch.sqrt(torch.pow(pt,2) + torch.pow(y[:,PZ_idx], 2))
+    #y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],E,pt,eta,phi]
+    y_out = [y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],pt,eta,phi]
     if len(log_idx)!=0:
-        for idx in log_idx:
-            y_out[idx] = torch.where((y_out[idx] + 1)>0, torch.log(y_out[idx] + 1),torch.zeros_like(y_out[idx]))
+      #  for idx in log_idx:
+      #      y_out[idx] = torch.where((y_out[idx] + 1)>0, torch.log(y_out[idx] + 1),torch.zeros_like(y_out[idx]))
+        y_out[E_idx+1] = torch.where((y_out[E_idx+1] + 1)>0, torch.log(y_out[E_idx+1] + 1),torch.zeros_like(y_out[E_idx+1])) #TMP, pt only hack 
+
+
     #relu =  m = nn.ReLU() #inplace=True  #This is actually not needed for E if min-max normalization is used for pt,E, AND!! relu is used as an activation function.
    # y_E_trimmed = relu(y[:,E_idx]) #trimming E
     #y_pt_trimmed = relu(pt) #trimming pt

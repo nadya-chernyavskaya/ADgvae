@@ -53,7 +53,7 @@ num_workers = 0
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  test_total_n ') 
-in_params = RunParameters(run_n=22, test_total_n=int(1e6)) 
+in_params = RunParameters(run_n=22, test_total_n=int(4e5)) 
 experiment = expe.Experiment(in_params.run_n).setup(model_dir=True, fig_dir=True)
 
 with open(os.path.join(experiment.model_dir,'parameters.json'), 'r') as f_json:
@@ -112,29 +112,38 @@ procs_all['Single Top'] = -1
 procs_all['ttbar'] = -2
 procs_all['V+jets'] = -3
 procs_dict = {key: value for key, value in procs_all.items() if value >= 0}
+consider_non_qcd_bg=False
 procs_signals = {key: value for key, value in procs_all.items() if value > 0}
+if consider_non_qcd_bg:
+    procs_signals = {key: value for key, value in procs_all.items() if value != 0}
+    procs_dict = procs_all
 
 
 
 save_path = os.path.join(experiment.model_dir, 'predicted_data/')
 pathlib.Path(save_path).mkdir(parents=True, exist_ok=True)
-overwrite = True
+overwrite = False
 #if not osp.isfile(osp.join(save_path,'predicted_df_signal.pkl')) or overwrite:
 if overwrite:
     print('>>> Preparing data')
     #taking already processed files
     signal_dataset = graph_data.GraphDataset(root=root_path_sig_region_sig,input_path = input_path, n_events = int(params.test_total_n), scaler=scaler)
     qcd_dataset = graph_data.GraphDataset(root=root_path_sig_region_qcd,input_path = input_path, n_events = int(params.test_total_n), scaler=scaler)
+    non_qcd_bg_dataset = graph_data.GraphDataset(root=root_path_sig_region_non_qcd_bg,input_path = input_path, n_events = int(params.test_total_n), scaler=scaler)
+
     if multi_gpu:
         #shuffle is not going to work inside the DataLoaders, because of the way the Dataset is set up, shuffling option is passed to the dataset
         signal_loader = DataListLoader(signal_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
         qcd_loader = DataListLoader(qcd_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
+        non_qcd_bg_loader = DataListLoader(non_qcd_bg_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
     else:
         signal_loader = DataLoader(signal_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
         qcd_loader = DataLoader(qcd_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
+        non_qcd_bg_loader = DataLoader(non_qcd_bg_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 
     jet_kin_names = signal_dataset.jet_kin_names_model
-    for loader,name in zip([signal_loader,qcd_loader],['signal','qcd']):
+    #for loader,name in zip([signal_loader,qcd_loader,non_qcd_bg_loader],['signal','qcd','non_qcd_bg']):
+    for loader,name in zip([signal_loader,non_qcd_bg_loader],['signal','non_qcd_bg']):
         proc_jets, input_fts, reco_fts, z_0_fts,z_last_fts,mu_fts,log_var_fts,truth_bit = analysis.process(loader, model, loss_ftn_obj,jet_kin_names,device)
         df = analysis.get_df(proc_jets)
         df.to_pickle(osp.join(save_path,'predicted_df_{}.pkl'.format(name)))
@@ -151,12 +160,16 @@ if overwrite:
 else:
     print("Using preprocessed dictionary")
     fig_dir = os.path.join(experiment.model_dir, 'predicted_figs/')
-    pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
     df_signal = pd.read_pickle(osp.join(save_path,'predicted_df_signal.pkl'))
     df_qcd = pd.read_pickle(osp.join(save_path,'predicted_df_qcd.pkl'))
     pred_sig = h5py.File(osp.join(save_path,'predicted_output_signal.h5'),'r',driver='core',backing_store=False)
     pred_qcd = h5py.File(osp.join(save_path,'predicted_output_qcd.h5'),'r',driver='core',backing_store=False)
-
+    if consider_non_qcd_bg:
+        df_non_qcd_bg = pd.read_pickle(osp.join(save_path,'predicted_df_non_qcd_bg.pkl'))
+        df_signal = pd.concat([df_signal,df_non_qcd_bg])
+        pred_sig = h5py.File(osp.join(save_path,'predicted_output_sig_non_qcd_bg.h5'),'r',driver='core',backing_store=False)
+        fig_dir = os.path.join(experiment.model_dir, 'predicted_figs_all_samples/')
+    pathlib.Path(fig_dir).mkdir(parents=True, exist_ok=True)
 
 
     losses = ['loss_reco'] 
@@ -168,6 +181,7 @@ else:
     for proc, proc_bit in procs_dict.items(): 
         input_file = pred_sig if proc!='QCD' else pred_qcd
         mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)[0]
+        if proc=='QCD' : mask = np.where(np.array(input_file['truth_bit']).T.astype(int)==proc_bit)[0] #to be removed later
         plot_stat = int(2e4)
         plot.plot_reco(np.array(input_file['input_fts'])[mask][0:plot_stat], np.array(input_file['reco_feats'])[mask][0:plot_stat],scaler, True, model_fname, osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')), feature_format,title=proc)
         plot.plot_latent(np.array(input_file['z_0_fts'])[mask][0:plot_stat],np.array(input_file['z_last_fts'])[mask][0:plot_stat],osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')),title=proc)
@@ -201,7 +215,8 @@ else:
     print('Plotting ROCs')
     for loss in losses:
         for comb in 'sum,min,max'.split(','):
-            neg_class_losses = [df_qcd['{}_{}'.format(loss,comb)][mask]]*len(list(procs_signals.keys()))
+            mask_qcd = df_qcd['truth_bit'].astype(int)==procs_dict['QCD']
+            neg_class_losses = [df_qcd['{}_{}'.format(loss,comb)][mask_qcd]]*len(list(procs_signals.keys()))
             pos_class_losses = []
             for proc, proc_bit in procs_signals.items(): 
                 input_df = df_signal 
@@ -227,7 +242,8 @@ else:
                 pos = pos['{}_{}'.format(loss,comb)]
                 pos_class_losses.append(pos)
 
-                neg = df_qcd[mask]
+                mask_qcd = df_qcd['truth_bit'].astype(int)==procs_dict['QCD']
+                neg = df_qcd[mask_qcd]
                 neg = analysis.get_mjj_binned_sample(neg,mass_center)
                 neg = neg['{}_{}'.format(loss,comb)]
                 neg_class_losses.append(neg)

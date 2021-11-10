@@ -49,7 +49,7 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=22, 
+params = RunParameters(run_n=23, 
                        n_epochs=50, 
                        train_total_n=int(1e6 ),  #1e6 
                        valid_total_n=int(1e5), #1e5
@@ -79,8 +79,8 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
 settings = Parameters(model_name = 'PlanarEdgeNetVAE',
                      input_dim=7,
-                     output_dim=7, #3 or 7 
-                     loss_func = 'vae_loss_mse',  #  vae_loss_mse vae_loss_mse_coord',
+                     output_dim=4, #3/4 or 7 
+                     loss_func = 'vae_loss_mse_coord',  #  vae_loss_mse vae_loss_mse_coord',
                      standardizer=uscaler.BasicStandardizer(),  
                      big_dim=62,
                      hidden_dim=2,
