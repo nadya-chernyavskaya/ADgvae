@@ -7,11 +7,41 @@ import os.path as osp
 import torch.nn.functional as F
 from torch_geometric.data import Data
 from torch_geometric.utils import to_dense_batch
+from torch.autograd import Variable
 import math
 
 multi_gpu = torch.cuda.device_count()>1
 eps = 1e-12
 torch.autograd.set_detect_anomaly(True)
+
+
+# N(x | mu, var) = 1/sqrt{2pi var} exp[-1/(2 var) (x-mean)(x-mean)]
+# log N(x| mu, var) = -log sqrt(2pi) -0.5 log var - 0.5 (x-mean)(x-mean)/var
+
+
+def log_normal_diag(x, mean, log_var, average=False, reduce=True, dim=None):
+    log_norm = -0.5 * (log_var + (x - mean) * (x - mean) * log_var.exp().reciprocal())
+    if reduce:
+        if average:
+            return torch.mean(log_norm, dim)
+        else:
+            return torch.sum(log_norm, dim)
+    else:
+        return log_norm
+
+
+def log_normal_standard(x, average=False, reduce=True, dim=None):
+    log_norm = -0.5 * x * x
+
+    if reduce:
+        if average:
+            return torch.mean(log_norm, dim)
+        else:
+            return torch.sum(log_norm, dim)
+    else:
+        return log_norm
+
+
 
 def kl_loss_manual(z_mean,z_log_var):
     kl = 1. + z_log_var - np.square(z_mean) - np.exp(z_log_var)
@@ -65,20 +95,20 @@ class LossFunction:
         self.beta = beta
         self.log_idx = log_idx
         
-    def mse(self, y, x):#for some reason convension is : out,in
+    def mse(self, y, x,reduction='mean'):#for some reason convension is : out,in
         PX_idx, PY_idx, PZ_idx, E_idx, PT_idx, ETA_idx, PHI_idx = range(7)
         #tricks for eta and phi
         y_phi = math.pi*torch.tanh(y[:,PHI_idx])
         y_eta = 2.5*torch.tanh(y[:,ETA_idx])
         full_y = torch.stack((y[:,PX_idx],y[:,PY_idx],y[:,PZ_idx],y[:,E_idx],y[:,PT_idx],y_eta,y_phi), dim=1)
-        return F.mse_loss(x, y, reduction='mean')
+        return F.mse_loss(x, y, reduction=reduction)
     
-    def mse_coordinates(self, y,x): #for some reason convension is : out,in
+    def mse_coordinates(self, y,x,reduction='mean'): #for some reason convension is : out,in
         #From px,py,pz,E get pt, eta, phi (do not predict them)
         #x is px,py,pz,E,pt,eta,phi
         #y is px,py,pz
         full_y = xyze_to_ptetaphi_torch(y,log_idx = self.log_idx) 
-        return self.mse(full_y,x)
+        return self.mse(full_y,x,reduction=reduction)
 
     # Reconstruction + KL divergence losses
     def vae_loss_mse_coord(self, y,x, mu, logvar):
@@ -92,4 +122,35 @@ class LossFunction:
         MSE = self.mse(y,x)
         KLD = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
         return (1-self.beta)*MSE + self.beta*KLD, MSE, KLD
+
+    # Reconstruction + KL divergence losses
+    def vae_flows_loss_mse_coord(self, x, y, mu, logvar,log_det_j, z_0, z_k):
+        MSE = self.mse_coordinates(y,x,reduction='sum')
+        return vae_flows_loss_mse(x, y, mu, logvar, z_0, z_k,log_det_j,MSE=MSE)
+
+    def vae_flows_loss_mse(self, x, y, mu, logvar, log_det_j, z_0, z_k,MSE=None):
+        batch_size = x.size(0)
+        if MSE is None:
+            MSE = self.mse(y,x,reduction='sum') #summming and will divide over batch
+
+        # ln p(z_k)  (not averaged)
+        log_p_zk = log_normal_standard(z_k, dim=1)
+        # ln q(z_0)  (not averaged)
+        log_q_z0 = log_normal_diag(z_0, mean=mu, log_var=logvar, dim=1)
+        # N E_q0[ ln q(z_0) - ln p(z_k) ]
+        summed_logs = torch.sum(log_q_z0 - log_p_zk)
+
+        # sum over batches
+        summed_ldj = torch.sum(log_det_j)
+        # ldj = N E_q_z0[\sum_k log |det dz_k/dz_k-1| ]
+        kl = (summed_logs - summed_ldj)
+        loss = MSE + self.beta * kl
+
+        loss = loss / int(batch_size)
+        MSE = MSE / int(batch_size)
+        kl = kl / int(batch_size)
+
+        return loss, MSE, kl
+
+
 

@@ -49,13 +49,13 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=23, 
+params = RunParameters(run_n=25, 
                        n_epochs=50, 
                        train_total_n=int(1e6 ),  #1e6 
-                       valid_total_n=int(1e5), #1e5
+                       valid_total_n=int(2e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
-                       learning_rate=0.0005,
+                       learning_rate=0.0001,
                        min_lr=10e-8,
                        patience=6,
                        min_delta=0.01, #the larger the value, the less sensitive it is 
@@ -70,21 +70,38 @@ if 'QCD_side' in params.proc:
 input_path = '/eos/cms/store/group/phys_b2g/CASE/h5_files/full_run2/BB_UL_MC_small_v2/'
 root_path_train = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/train/'
 root_path_valid = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/valid/'    
+do_preprocessing=False
+if do_preprocessing:
+    input_files_train_txt = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/qcd_train_files.txt'
+    input_files_valid_txt = '/eos/user/n/nchernya/MLHEP/AnomalyDetection/autoencoder_for_anomaly/graph_based/case_input/qcd_valid_files.txt'
+    print('>>> Preprocessing data')
+    #Parameters for the graph dataset
+    with open(input_files_train_txt,'r') as txt_file:
+        lines = txt_file.readlines()
+        input_files = [line.rstrip() for line in lines]
+    #taking already processed files
+    train_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path,input_files = input_files,proc_type=proc_type, n_events = params.test_total_n, side_reg=side_reg,  scaler=scaler)
+    with open(input_files_valid_txt,'r') as txt_file:
+        lines = txt_file.readlines()
+        input_files = [line.rstrip() for line in lines]
+    valid_dataset = graph_data.GraphDataset(root=root_path_train,input_path = input_path,input_files = input_files,proc_type=proc_type, n_events = params.test_total_n, side_reg=side_reg,  scaler=scaler)
+    exit()
 
 experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta activation initializer')
-settings = Parameters(model_name = 'PlanarEdgeNetVAE',
+Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta num_flows activation initializer')
+settings = Parameters(model_name = 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
                      input_dim=7,
-                     output_dim=4, #3/4 or 7 
-                     loss_func = 'vae_loss_mse_coord',  #  vae_loss_mse vae_loss_mse_coord',
+                     output_dim=7, #3/4 or 7 
+                     loss_func = 'vae_loss_mse',  #  vae_flows_loss_mse_coord vae_loss_mse vae_loss_mse_coord',
                      standardizer=uscaler.BasicStandardizer(),  
                      big_dim=62,
                      hidden_dim=2,
                      beta=0.5,
+                     num_flows=20,
                      activation=nn.ReLU(), #nn.LeakyReLU(0.1), #nn.ELU(),#nn.ReLU(),
                      initializer='') #not yet set up 
 
@@ -149,7 +166,7 @@ if params.plotting:
 # *******************************************************
 #                       build model
 # *******************************************************
-model = getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim, activation=settings.activation)
+model = getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim, activation=settings.activation,num_flows=settings.num_flows)
 
 
 print(model)
