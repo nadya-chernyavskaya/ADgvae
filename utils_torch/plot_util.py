@@ -37,9 +37,9 @@ def plot_reco_difference(input_fts, reco_fts, model_fname, save_path, feature='h
     """
     
     if isinstance(input_fts, torch.Tensor):
-        input_fts = input_fts.numpy()
+        input_fts = input_fts.cpu().numpy()
     if isinstance(reco_fts, torch.Tensor):
-        reco_fts = reco_fts.numpy()
+        reco_fts = reco_fts.cpu().numpy()
     rel_diff = (reco_fts - input_fts) / (input_fts + 1e-12)
 
         
@@ -186,7 +186,7 @@ def gen_in_out_latent(model, loader, device):
     if len(out)==6:
         z_0_fts = torch.cat(z_0_fts)
         z_last_fts = torch.cat(z_last_fts)
-    return (input_fts,reco_fts,mu_fts,log_var_fts,z_0_fts,z_last_fts)
+    return (input_fts.cpu(),reco_fts.cpu(),mu_fts.cpu(),log_var_fts.cpu(),z_0_fts.cpu(),z_last_fts.cpu())
 
 
 @torch.no_grad()
@@ -241,9 +241,9 @@ def plot_reco(input_fts, reco_fts,scaler, inverse_scale, model_fname, save_dir, 
 def plot_latent(z_0_fts,z_last_fts,save_dir,title='QCD dataset'):
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     if isinstance(z_0_fts, torch.Tensor):
-        z_0_fts = z_0_fts.numpy()
+        z_0_fts = z_0_fts.cpu().numpy()
     if isinstance(z_last_fts, torch.Tensor):
-        z_last_fts = z_last_fts.numpy()
+        z_last_fts = z_last_fts.cpu().numpy()
     vande_plot.plot_2dhist( z_0_fts[:,0],z_0_fts[:,1], 'Dim. 0', 'Dim. 1','{}, Before Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'gauss_2d.png'),cmap=plt.cm.Reds)
     vande_plot.plot_2dhist( z_last_fts[:,0],z_last_fts[:,1] , 'Dim. 0', 'Dim. 1', '{}, After Normalizing Flows'.format(title), plotname=osp.join(save_dir, 'normflow_2d.png'),cmap=plt.cm.Reds)
 

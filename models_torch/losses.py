@@ -126,7 +126,7 @@ class LossFunction:
     # Reconstruction + KL divergence losses
     def vae_flows_loss_mse_coord(self, x, y, mu, logvar,log_det_j, z_0, z_k):
         MSE = self.mse_coordinates(y,x,reduction='sum')
-        return vae_flows_loss_mse(x, y, mu, logvar, z_0, z_k,log_det_j,MSE=MSE)
+        return vae_flows_loss_mse(x, y, mu, logvar,log_det_j, z_0, z_k,MSE=MSE)
 
     def vae_flows_loss_mse(self, x, y, mu, logvar, log_det_j, z_0, z_k,MSE=None):
         batch_size = x.size(0)
@@ -144,7 +144,7 @@ class LossFunction:
         summed_ldj = torch.sum(log_det_j)
         # ldj = N E_q_z0[\sum_k log |det dz_k/dz_k-1| ]
         kl = (summed_logs - summed_ldj)
-        loss = MSE + self.beta * kl
+        loss = MSE + kl
 
         loss = loss / int(batch_size)
         MSE = MSE / int(batch_size)

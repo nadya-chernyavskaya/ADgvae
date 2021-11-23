@@ -9,7 +9,7 @@ import torch_geometric.transforms as T
 from torch_geometric.data import Data
 from torch_scatter import scatter_mean, scatter
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU
-from torch_geometric.nn import MetaLayer, EdgeConv, global_mean_pool, DynamicEdgeConv
+from torch_geometric.nn import MetaLayer, EdgeConv, GATConv, global_mean_pool, DynamicEdgeConv
 from torch.autograd import Variable
 
 import DarkFlow.darkflow.networks.flows as flows
@@ -88,56 +88,33 @@ class EdgeNetVAE(nn.Module):
 
 
 
-class PlanarEdgeNetVAE(nn.Module):
-    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean', activation=nn.ReLU(),num_flows=6):
-        super(PlanarEdgeNetVAE, self).__init__()
+class PlanarVAE(nn.Module):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, activation=nn.ReLU(),num_flows=6):
+        super(PlanarVAE, self).__init__()
 
         self.hidden_dim = hidden_dim
 
-        encoder_nn_1 = nn.Sequential(nn.Linear(2*(input_dim), big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Linear(big_dim*2, big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Linear(big_dim*2, big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim)
+        encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, hidden_dim),
+                               nn.ReLU(),
         )
-        encoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim), big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim),
-                                   nn.Linear(big_dim, big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim)
-        )
-        decoder_nn_1 = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
-                                   activation,
-                                   nn.Linear(big_dim, big_dim),
-                                   nn.BatchNorm1d(big_dim),
-                                   activation,
-                                   nn.Linear(big_dim, big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2)
-        )
-        decoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim*2), big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Linear(big_dim*2, big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Linear(big_dim*2, output_dim)
+        
+        decoder_nn = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, output_dim)
         )
 
         self.mu_layer = nn.Linear(big_dim, hidden_dim)
         self.var_layer = nn.Linear(big_dim, hidden_dim)
         self.batchnorm = nn.BatchNorm1d(input_dim)
 
-        self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
-        self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
-        self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
-        self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
-    
+        self.encoder_1 = EdgeConv(nn=encoder_nn,aggr='mean')
+        self.decoder_1 = EdgeConv(nn=decoder_nn,aggr='mean')
 
         # Initialize log-det-jacobian to zero
         self.log_det_j = 0
@@ -158,11 +135,19 @@ class PlanarEdgeNetVAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps*std
 
-
     def encode(self, x, edge_index):
-        batch_size = x.size(0)
         x = self.encoder_1(x,edge_index)
         x = self.encoder_2(x,edge_index)
+        return x
+
+    def decode(self, x, edge_index):
+        x_decoded = self.decoder_1(x,edge_index)
+        x_decoded = self.decoder_2(x_decoded,edge_index)
+        return x
+
+    def encode_plus_flows(self, x, edge_index):
+        batch_size = x.size(0)
+        x = self.encode(x,edge_index)
         mu = self.mu_layer(x)
         log_var = self.var_layer(x)      
 
@@ -178,7 +163,7 @@ class PlanarEdgeNetVAE(nn.Module):
     def forward(self, data):
         self.log_det_j = 0
         x = self.batchnorm(data.x)
-        mu, log_var, u, w, b = self.encode(x,data.edge_index)
+        mu, log_var, u, w, b = self.encode_plus_flows(x,data.edge_index)
 
         # Sample z_0
         z = [self.reparameterize(mu, log_var)]
@@ -190,18 +175,14 @@ class PlanarEdgeNetVAE(nn.Module):
             z.append(z_k)
             self.log_det_j += log_det_jacobian
 
-        x_decoded = self.decoder_1(z[-1],data.edge_index)
-        x_decoded = self.decoder_2(x_decoded,data.edge_index)
+        x_decoded = self.decode(z[-1],data.edge_index)
 
         return x_decoded, mu, log_var, self.log_det_j, z[0], z[-1]
 
 
-
-class TriangularSylvesterEdgeNetVAE(nn.Module):
+class PlanarVAE_EdgeNet(PlanarVAE):
     def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean', activation=nn.ReLU(),num_flows=6):
-        super(TriangularSylvesterEdgeNetVAE, self).__init__()
-
-        self.hidden_dim = hidden_dim
+        super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
 
         encoder_nn_1 = nn.Sequential(nn.Linear(2*(input_dim), big_dim*2),
                                    activation,
@@ -238,15 +219,47 @@ class TriangularSylvesterEdgeNetVAE(nn.Module):
                                    nn.Linear(big_dim*2, output_dim)
         )
 
-        self.mu_layer = nn.Linear(big_dim, hidden_dim)
-        self.var_layer = nn.Linear(big_dim, hidden_dim)
-        self.batchnorm = nn.BatchNorm1d(input_dim)
-
         self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
         self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
         self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
         self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
     
+
+    def encode(self, x, edge_index):
+        x = self.encoder_1(x,edge_index)
+        x = self.encoder_2(x,edge_index)
+        return x
+
+    def decode(self, x, edge_index):
+        x_decoded = self.decoder_1(x,edge_index)
+        x_decoded = self.decoder_2(x_decoded,edge_index)
+        return x_decoded
+
+
+class TriangularSylvesterVAE(nn.Module):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,activation=nn.ReLU(),num_flows=6):
+        super(TriangularSylvesterVAE, self).__init__()
+
+        self.hidden_dim = hidden_dim
+
+
+        encoder_nn = nn.Sequential(nn.Linear(2*(input_dim), big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, big_dim),
+                               nn.ReLU()
+        )
+        decoder_nn = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, big_dim),
+                               nn.ReLU(),
+                               nn.Linear(big_dim, output_dim)
+        )
+        self.encoder_1 = EdgeConv(nn=encoder_nn,aggr='mean')
+        self.decoder_1 = EdgeConv(nn=decoder_nn,aggr='mean')
+
+        self.mu_layer = nn.Linear(big_dim, hidden_dim)
+        self.var_layer = nn.Linear(big_dim, hidden_dim)
+        self.batchnorm = nn.BatchNorm1d(input_dim)
 
         # Initialize log-det-jacobian to zero
         self.log_det_j = 0
@@ -295,11 +308,13 @@ class TriangularSylvesterEdgeNetVAE(nn.Module):
         eps = torch.randn_like(std)
         return mu + eps*std
 
-
     def encode(self, x, edge_index):
-        batch_size = x.size(0)
         x = self.encoder_1(x,edge_index)
-        x = self.encoder_2(x,edge_index)
+        return x        
+
+    def encode_plus_flows(self, x, edge_index):
+        batch_size = x.size(0)
+        x = self.encode(x,edge_index)
         mu = self.mu_layer(x)
         log_var = self.var_layer(x)      
 
@@ -322,15 +337,17 @@ class TriangularSylvesterEdgeNetVAE(nn.Module):
           # Resize flow parameters to divide over K flows
         b = b.view(batch_size, 1, self.hidden_dim, self.num_flows)
 
-
         return mu, log_var, r1, r2, b
 
+    def decode(self, x, edge_index):
+        x = self.decoder_1(x,edge_index)
+        return x   
 
 
     def forward(self, data):
         self.log_det_j = 0
         x = self.batchnorm(data.x)
-        mu, log_var,  r1, r2, b = self.encode(x,data.edge_index)
+        mu, log_var,  r1, r2, b = self.encode_plus_flows(x,data.edge_index)
 
         # Sample z_0
         z = [self.reparameterize(mu, log_var)]
@@ -350,13 +367,121 @@ class TriangularSylvesterEdgeNetVAE(nn.Module):
             z.append(z_k)
             self.log_det_j += log_det_jacobian
 
-        x_decoded = self.decoder_1(z[-1],data.edge_index)
-        x_decoded = self.decoder_2(x_decoded,data.edge_index)
+
+        x_decoded = self.decode(z[-1],data.edge_index)
 
         return x_decoded, mu, log_var, self.log_det_j, z[0], z[-1]
 
 
+class TriangularSylvesterVAE_EdgeNet(TriangularSylvesterVAE):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2, aggr='mean', activation=nn.ReLU(),num_flows=6):
+        super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
+
+        encoder_nn_1 = nn.Sequential(nn.Linear(2*(input_dim), big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim)
+        )
+        encoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim), big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim),
+                                   nn.Linear(big_dim, big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim)
+        )
+        decoder_nn_1 = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
+                                   activation,
+                                   nn.Linear(big_dim, big_dim),
+                                   nn.BatchNorm1d(big_dim),
+                                   activation,
+                                   nn.Linear(big_dim, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2)
+        )
+        decoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim*2), big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, output_dim)
+        )
+
+        self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
+        self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
+        self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
+        self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
 
 
+    def encode(self, x, edge_index):
+        x = self.encoder_1(x,edge_index)
+        x = self.encoder_2(x,edge_index)
+        return x
+
+    def decode(self, x, edge_index):
+        x_decoded = self.decoder_1(x,edge_index)
+        x_decoded = self.decoder_2(x_decoded,edge_index)
+        return x_decoded
+
+
+
+class TriangularSylvesterVAE_GAT(TriangularSylvesterVAE):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,heads=5,dropout=0.2,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
+        super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
+
+        self.encoder_1 = GATConv(
+            input_dim, 
+            big_dim*2, 
+            heads=heads,
+            dropout=dropout, 
+            negative_slope=negative_slope)
+
+        self.linear_en = nn.Sequential(activation,
+                                nn.Dropout(p=dropout))
+
+        self.encoder_2 = GATConv(
+            big_dim*2 * heads,
+            big_dim,
+            heads=heads,
+            concat=False, 
+            dropout=dropout,
+            negative_slope=negative_slope)        
+
+
+        self.decoder_1 = GATConv(
+            hidden_dim, 
+            big_dim, 
+            heads=heads,
+            dropout=dropout, 
+            negative_slope=negative_slope)
+
+        self.linear_de = nn.Sequential(activation,
+                                nn.Dropout(p=dropout))
+
+        self.decoder_2 = GATConv(
+            big_dim*heads, 
+            output_dim, 
+            heads=heads,
+            concat=False, 
+            dropout=dropout, 
+            negative_slope=negative_slope)
+
+
+    def encode(self, x, edge_index):
+        x = self.encoder_1(x,edge_index)
+        x = self.linear_en(x)
+        x = self.encoder_2(x,edge_index)
+        return x
+
+    def decode(self, x, edge_index):
+        x_decoded = self.decoder_1(x,edge_index)
+        x_decoded = self.linear_de(x_decoded)
+        x_decoded = self.decoder_2(x_decoded,edge_index)
+        return x_decoded
 
 

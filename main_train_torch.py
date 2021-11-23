@@ -49,17 +49,17 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=25, 
-                       n_epochs=50, 
+params = RunParameters(run_n=31, 
+                       n_epochs=2, 
                        train_total_n=int(1e6 ),  #1e6 
-                       valid_total_n=int(2e5), #1e5
+                       valid_total_n=int(1e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
-                       learning_rate=0.0001,
+                       learning_rate=0.001,
                        min_lr=10e-8,
                        patience=6,
                        min_delta=0.01, #the larger the value, the less sensitive it is 
-                       adam_betas=(0.7,0.9), #0.7, 0.9 #default (0.9, 0.999)
+                       adam_betas=(0.9,0.98), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
 
@@ -93,7 +93,7 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 #       Models params
 # ********************************************************
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta num_flows activation initializer')
-settings = Parameters(model_name = 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
+settings = Parameters(model_name ='TriangularSylvesterVAE_GAT',# 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
                      input_dim=7,
                      output_dim=7, #3/4 or 7 
                      loss_func = 'vae_loss_mse',  #  vae_flows_loss_mse_coord vae_loss_mse vae_loss_mse_coord',
@@ -101,7 +101,7 @@ settings = Parameters(model_name = 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeN
                      big_dim=62,
                      hidden_dim=2,
                      beta=0.5,
-                     num_flows=20,
+                     num_flows=6,
                      activation=nn.ReLU(), #nn.LeakyReLU(0.1), #nn.ELU(),#nn.ReLU(),
                      initializer='') #not yet set up 
 
@@ -180,7 +180,7 @@ with open(os.path.join(experiment.model_dir,'model_summary.txt'), 'w') as f:
 #                       training options
 # *******************************************************
 optimizer = torch.optim.Adam(model.parameters(), lr = params.learning_rate, betas=params.adam_betas)
-scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr,verbose=True)
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=3, threshold=params.min_lr,verbose=True,factor=0.5)
 loss_ftn_obj = losses.LossFunction(settings.loss_func,beta=0.5,device=device,log_idx=train_dataset.scaler.idx_log)
 
 # *******************************************************
@@ -200,6 +200,7 @@ for what in 'tot,reco,kl'.split(','):
     valid_losses[what] = []
 start_epoch = 0
 modpath = osp.join(experiment.model_dir, settings.model_name+'.best.pth')
+pathlib.Path(osp.join(experiment.model_dir,'saved_models/')).mkdir(parents=True, exist_ok=True)
 if osp.isfile(modpath):
     model.load_state_dict(torch.load(modpath, map_location=device))
     model.to(device)
@@ -208,6 +209,7 @@ if osp.isfile(modpath):
     print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
     if osp.isfile(osp.join(experiment.model_dir,'losses.pt')):
         train_losses, valid_losses, start_epoch = torch.load(osp.join(experiment.model_dir,'losses.pt'))
+        epoch = start_epoch
 else:
     print('Creating new model')
     best_valid_loss = 9999999
@@ -219,7 +221,6 @@ if multi_gpu:
 # Training loop
 stale_epochs = 0
 loss = best_valid_loss
-epoch=0
 #for epoch in range(0, 0):
 for epoch in range(start_epoch, params.n_epochs):
     modpath_epoch = osp.join(osp.join(experiment.model_dir,'saved_models/'), settings.model_name+'.epoch_{}.pth'.format(epoch))
@@ -268,7 +269,8 @@ for epoch in range(start_epoch, params.n_epochs):
         if multi_gpu:
             torch.save(model.module.state_dict(), modpath_epoch)
         else:
-            torch.save(model.state_dict(), modpath_epoch)        
+            torch.save(model.state_dict(), modpath_epoch)   
+
 
 tb.close()
 
@@ -288,7 +290,7 @@ if epoch!=0:
 # load best model
 del model
 torch.cuda.empty_cache()
-model =  getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim)
+model =  getattr(models, settings.model_name)(input_dim=settings.input_dim,output_dim=settings.output_dim, big_dim=settings.big_dim, hidden_dim=settings.hidden_dim, activation=settings.activation,num_flows=settings.num_flows)
 model.load_state_dict(torch.load(modpath))
 if multi_gpu:
     model = DataParallel(model)
