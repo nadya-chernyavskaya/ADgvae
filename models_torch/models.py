@@ -9,8 +9,9 @@ import torch_geometric.transforms as T
 from torch_geometric.data import Data
 from torch_scatter import scatter_mean, scatter
 from torch.nn import Sequential as Seq, Linear as Lin, ReLU
-from torch_geometric.nn import MetaLayer, EdgeConv, GATConv, global_mean_pool, DynamicEdgeConv
+from torch_geometric.nn import MetaLayer, EdgeConv, GATConv, GATv2Conv, global_mean_pool, DynamicEdgeConv, BatchNorm
 from torch.autograd import Variable
+from torch.nn import ModuleList
 
 import DarkFlow.darkflow.networks.flows as flows
 
@@ -109,12 +110,12 @@ class PlanarVAE(nn.Module):
                                nn.Linear(big_dim, output_dim)
         )
 
+        self.encoder_1 = EdgeConv(nn=encoder_nn,aggr='mean')
+        self.decoder_1 = EdgeConv(nn=decoder_nn,aggr='mean')
+
         self.mu_layer = nn.Linear(big_dim, hidden_dim)
         self.var_layer = nn.Linear(big_dim, hidden_dim)
         self.batchnorm = nn.BatchNorm1d(input_dim)
-
-        self.encoder_1 = EdgeConv(nn=encoder_nn,aggr='mean')
-        self.decoder_1 = EdgeConv(nn=decoder_nn,aggr='mean')
 
         # Initialize log-det-jacobian to zero
         self.log_det_j = 0
@@ -137,12 +138,10 @@ class PlanarVAE(nn.Module):
 
     def encode(self, x, edge_index):
         x = self.encoder_1(x,edge_index)
-        x = self.encoder_2(x,edge_index)
         return x
 
     def decode(self, x, edge_index):
         x_decoded = self.decoder_1(x,edge_index)
-        x_decoded = self.decoder_2(x_decoded,edge_index)
         return x
 
     def encode_plus_flows(self, x, edge_index):
@@ -219,6 +218,7 @@ class PlanarVAE_EdgeNet(PlanarVAE):
                                    nn.Linear(big_dim*2, output_dim)
         )
 
+        self.encoder_1, self.decoder_1 = None, None
         self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
         self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
         self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
@@ -430,58 +430,239 @@ class TriangularSylvesterVAE_EdgeNet(TriangularSylvesterVAE):
 
 
 
-class TriangularSylvesterVAE_GAT(TriangularSylvesterVAE):
-    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,heads=5,dropout=0.2,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
+
+class TriangularSylvesterVAE_GATStack(TriangularSylvesterVAE):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,num_conv_layers=5,heads=1,dropout=0.,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
         super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
 
-        self.encoder_1 = GATConv(
-            input_dim, 
-            big_dim*2, 
+        self.activation = activation
+        self.dropout = dropout
+        self.enc_convs = ModuleList()
+        self.enc_convs.append(
+            GATv2Conv(
+                in_channels=input_dim,
+                out_channels=big_dim,
+                heads=heads,
+                negative_slope=negative_slope,
+                dropout=dropout,
+                add_self_loops=False
+            )
+        )
+        for _ in range(num_conv_layers - 2):
+            conv = GATv2Conv(
+                in_channels=big_dim * heads,
+                out_channels=big_dim,
+                heads=heads,
+                negative_slope=negative_slope,
+                dropout=dropout,
+                add_self_loops=False
+            )
+            self.enc_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim * heads,
+            out_channels=big_dim,
             heads=heads,
-            dropout=dropout, 
-            negative_slope=negative_slope)
-
-        self.linear_en = nn.Sequential(activation,
-                                nn.Dropout(p=dropout))
-
-        self.encoder_2 = GATConv(
-            big_dim*2 * heads,
-            big_dim,
-            heads=heads,
-            concat=False, 
+            negative_slope=negative_slope,
             dropout=dropout,
-            negative_slope=negative_slope)        
+            add_self_loops=False,
+            concat=False,
+        )
+        self.enc_convs.append(conv)
+        self.encoder_1 = None
+        self.decoder_1 = None
 
 
-        self.decoder_1 = GATConv(
-            hidden_dim, 
-            big_dim, 
+        self.dec_convs = ModuleList()
+        conv = GATv2Conv(
+            in_channels=hidden_dim, 
+            out_channels=big_dim, 
             heads=heads,
-            dropout=dropout, 
-            negative_slope=negative_slope)
-
-        self.linear_de = nn.Sequential(activation,
-                                nn.Dropout(p=dropout))
-
-        self.decoder_2 = GATConv(
-            big_dim*heads, 
-            output_dim, 
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False
+        )
+        self.dec_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim*heads, 
+            out_channels=big_dim, 
             heads=heads,
-            concat=False, 
-            dropout=dropout, 
-            negative_slope=negative_slope)
-
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False
+        )        
+        self.dec_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim*heads, 
+            out_channels=output_dim, 
+            heads=heads,
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False,
+            concat=False
+        )
+        self.dec_convs.append(conv)
 
     def encode(self, x, edge_index):
-        x = self.encoder_1(x,edge_index)
-        x = self.linear_en(x)
-        x = self.encoder_2(x,edge_index)
+        for conv in self.enc_convs[:-1]:
+            x = conv(x, edge_index)
+            x = self.activation(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.enc_convs[-1](x, edge_index)
         return x
 
     def decode(self, x, edge_index):
-        x_decoded = self.decoder_1(x,edge_index)
-        x_decoded = self.linear_de(x_decoded)
-        x_decoded = self.decoder_2(x_decoded,edge_index)
-        return x_decoded
+        for conv in self.dec_convs[:-1]:
+            x = conv(x, edge_index)
+            x = self.activation(x)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.dec_convs[-1](x, edge_index) 
+        return x
+
+
+class TriangularSylvesterVAE_EdgeAttention(TriangularSylvesterVAE):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,num_conv_layers=3,heads=3,dropout=0.,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
+        super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
+
+
+        self.activation = activation
+        self.dropout = dropout
+        aggr = 'mean'
+
+        encoder_nn_1 = nn.Sequential(nn.Linear(2*(input_dim), big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim)
+        )
+        encoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim), big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim),
+                                   nn.Linear(big_dim, big_dim),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim)
+        )
+        decoder_nn_1 = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
+                                   activation,
+                                   nn.Linear(big_dim, big_dim),
+                                   nn.BatchNorm1d(big_dim),
+                                   activation,
+                                   nn.Linear(big_dim, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2)
+        )
+        decoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim*2), big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, big_dim*2),
+                                   activation,
+                                   nn.BatchNorm1d(big_dim*2),
+                                   nn.Linear(big_dim*2, output_dim)
+        )
+
+        self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
+        self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
+        self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
+        self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
+
+
+        self.enc_convs = ModuleList()
+        self.enc_convs.append(
+            GATv2Conv(
+                in_channels=input_dim,
+                out_channels=big_dim,
+                heads=heads,
+                negative_slope=negative_slope,
+                dropout=dropout,
+                add_self_loops=False
+            )
+        )
+        for _ in range(num_conv_layers - 2):
+            conv = GATv2Conv(
+                in_channels=big_dim * heads,
+                out_channels=big_dim,
+                heads=heads,
+                negative_slope=negative_slope,
+                dropout=dropout,
+                add_self_loops=False
+            )
+            self.enc_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim * heads,
+            out_channels=big_dim,
+            heads=heads,
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False,
+            concat=False,
+        )
+        self.enc_convs.append(conv)
+
+        self.dec_convs = ModuleList()
+        conv = GATv2Conv(
+            in_channels=hidden_dim, 
+            out_channels=big_dim, 
+            heads=heads,
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False
+        )
+        self.dec_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim*heads, 
+            out_channels=big_dim, 
+            heads=heads,
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False
+        )        
+        self.dec_convs.append(conv)
+        conv = GATv2Conv(
+            in_channels=big_dim*heads, 
+            out_channels=output_dim, 
+            heads=heads,
+            negative_slope=negative_slope,
+            dropout=dropout,
+            add_self_loops=False,
+            concat=False
+        )
+        self.dec_convs.append(conv)
+
+
+    def encode(self, x, edge_index):
+        x_cloud = self.encoder_1(x,edge_index)
+        x_cloud = self.encoder_2(x_cloud,edge_index)
+
+        x_gat = x
+        for conv in self.enc_convs[:-1]:
+            x_gat = conv(x_gat, edge_index)
+            x_gat = self.activation(x_gat)
+            x_gat = F.dropout(x_gat, p=self.dropout, training=self.training)
+        x_gat = self.enc_convs[-1](x_gat, edge_index) 
+
+        #x_tot = torch.cat((x_cloud, x_gat), dim=1)
+        x_tot = torch.add(x_cloud, x_gat)
+        return x_tot
+
+
+    def decode(self, x, edge_index):
+        x_cloud = self.decoder_1(x,edge_index)
+        x_cloud = self.decoder_2(x_cloud,edge_index)
+
+        x_gat = x
+        for conv in self.dec_convs[:-1]:
+            x_gat = conv(x_gat, edge_index)
+            x_gat = self.activation(x_gat)
+            x_gat = F.dropout(x_gat, p=self.dropout, training=self.training)
+        x_gat = self.dec_convs[-1](x_gat, edge_index) 
+
+        x_tot = torch.add(x_cloud, x_gat)
+        return x_tot
+
+
+
 
 
