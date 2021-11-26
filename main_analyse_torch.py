@@ -42,7 +42,7 @@ from torch_geometric.nn import EdgeConv, global_mean_pool, DataParallel
 import setGPU
 
 torch.manual_seed(0)
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:{}'.format(os.environ['CUDA_VISIBLE_DEVICES']) if torch.cuda.is_available() else 'cpu')
 print('Running on the device ',device)
 multi_gpu = False #torch.cuda.device_count()>1
 num_workers = 0
@@ -53,7 +53,7 @@ num_workers = 0
 #       runtime params
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  test_total_n ') 
-in_params = RunParameters(run_n=22, test_total_n=int(4e5)) 
+in_params = RunParameters(run_n=39, test_total_n=int(4e5)) 
 experiment = expe.Experiment(in_params.run_n).setup(model_dir=True, fig_dir=True)
 
 with open(os.path.join(experiment.model_dir,'parameters.json'), 'r') as f_json:
@@ -142,8 +142,9 @@ if overwrite:
         non_qcd_bg_loader = DataLoader(non_qcd_bg_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
 
     jet_kin_names = signal_dataset.jet_kin_names_model
-    #for loader,name in zip([signal_loader,qcd_loader,non_qcd_bg_loader],['signal','qcd','non_qcd_bg']):
-    for loader,name in zip([signal_loader,non_qcd_bg_loader],['signal','non_qcd_bg']):
+    for loader,name in zip([signal_loader,qcd_loader,non_qcd_bg_loader],['signal','qcd','non_qcd_bg']):
+    #for loader,name in zip([signal_loader,non_qcd_bg_loader],['signal','non_qcd_bg']):
+    #for loader,name in zip([qcd_loader],['qcd']):
         proc_jets, input_fts, reco_fts, z_0_fts,z_last_fts,mu_fts,log_var_fts,truth_bit = analysis.process(loader, model, loss_ftn_obj,jet_kin_names,device)
         df = analysis.get_df(proc_jets)
         df.to_pickle(osp.join(save_path,'predicted_df_{}.pkl'.format(name)))
@@ -181,7 +182,7 @@ else:
     for proc, proc_bit in procs_dict.items(): 
         input_file = pred_sig if proc!='QCD' else pred_qcd
         mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)[0]
-        if proc=='QCD' : mask = np.where(np.array(input_file['truth_bit']).T.astype(int)==proc_bit)[0] #to be removed later
+        if proc=='QCD' : mask = np.where(np.array(input_file['truth_bit']).astype(int)==proc_bit)[0] 
         plot_stat = int(2e4)
         plot.plot_reco(np.array(input_file['input_fts'])[mask][0:plot_stat], np.array(input_file['reco_feats'])[mask][0:plot_stat],scaler, True, model_fname, osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')), feature_format,title=proc)
         plot.plot_latent(np.array(input_file['z_0_fts'])[mask][0:plot_stat],np.array(input_file['z_last_fts'])[mask][0:plot_stat],osp.join(osp.join(fig_dir,'signals'),proc.replace(' ','_')),title=proc)
