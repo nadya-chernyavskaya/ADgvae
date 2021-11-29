@@ -49,16 +49,16 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=42, 
+params = RunParameters(run_n=43, 
                        n_epochs=200, 
-                       train_total_n=int(1.5e6 ),  #1e6 
+                       train_total_n=int(1e6 ),  #1e6 
                        valid_total_n=int(2e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
                        learning_rate=0.0005,
                        min_lr=10e-8,
                        patience=3,
-                       min_delta=0.001, #the larger the value, the less sensitive it is 
+                       min_delta=0.01, #the larger the value, the less sensitive it is 
                        adam_betas=(0.8,0.9), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
@@ -93,7 +93,7 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 #       Models params
 # ********************************************************
 Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta num_flows activation initializer')
-settings = Parameters(model_name ='TriangularSylvesterVAE_EdgeAttention',#TriangularSylvesterVAE_GATStack',# 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
+settings = Parameters(model_name ='TriangularSylvesterVAE_EdgeAttentionInception',#TriangularSylvesterVAE_GATStack',# 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
                      input_dim=7,
                      output_dim=7, #3/4 or 7 
                      loss_func = 'vae_loss_mse',  #  vae_flows_loss_mse_coord vae_loss_mse vae_loss_mse_coord',

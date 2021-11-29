@@ -680,14 +680,11 @@ class TriangularSylvesterVAE_EdgeAttention(TriangularSylvesterVAE):
 
 
 class GATLayer(nn.Module):   
-    def __init__(self, in_dim, out_dim, num_heads, dropout, batch_norm,concat,  activation=F.relu,add_self_loops=True,negative_slope=0.2,residual=False):
+    def __init__(self, in_dim, out_dim, num_heads, dropout, batch_norm,concat,  activation=F.relu,add_self_loops=True,negative_slope=0.2):
         super().__init__()
-        self.residual = residual
         self.activation = activation
         self.batch_norm = batch_norm
             
-        if in_dim != (out_dim*num_heads):
-            self.residual = False
 
         self.gatconv = GATv2Conv(
             in_channels=in_dim, 
@@ -699,12 +696,45 @@ class GATLayer(nn.Module):
             concat=concat
         )  
 
-
         if self.batch_norm:
-            self.batchnorm_h = nn.BatchNorm1d(out_dim * num_heads)
+            if concat :
+                self.batchnorm_h = nn.BatchNorm1d(out_dim * num_heads)
+            else : 
+                self.batchnorm_h = nn.BatchNorm1d(out_dim)    
 
     def forward(self, feature, edge_index):
         h = self.gatconv(feature, edge_index)
+            
+        if self.activation:
+            h = self.activation(h)
+
+        if self.batch_norm:
+            h = self.batchnorm_h(h)
+            
+
+        return h
+
+
+class EdgeConvLayer(nn.Module):   
+    def __init__(self, in_dim, out_dim, dropout, batch_norm, activation=F.relu, aggr='mean'):
+        super().__init__()
+        self.activation = activation
+        self.batch_norm = batch_norm
+            
+
+        self.edgeconv = nn.Sequential(nn.Linear(2*(in_dim), out_dim),
+                                   activation,
+                                   nn.BatchNorm1d(out_dim),
+                                   nn.Dropout(p=dropout))
+
+        self.edgeconv = EdgeConv(nn=self.edgeconv,aggr=aggr)
+
+
+        if self.batch_norm:
+            self.batchnorm_h = nn.BatchNorm1d(out_dim)
+
+    def forward(self, feature, edge_index):
+        h = self.edgeconv(feature, edge_index)
             
         if self.batch_norm:
             h = self.batchnorm_h(h)
@@ -716,135 +746,77 @@ class GATLayer(nn.Module):
 
 
 
-class TriangularSylvesterVAE_EdgeAttentionLayer(TriangularSylvesterVAE):
+class TriangularSylvesterVAE_EdgeAttentionInception(TriangularSylvesterVAE):
     def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,num_conv_layers=3,heads=3,dropout=0.1,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
         super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
 
 
+        self.encoder_1, self.decoder_1 = None, None
         self.activation = activation
-        self.dropout = dropout
+        self.num_conv_layers = num_conv_layers
         aggr = 'mean'
 
-        encoder_nn_1 = nn.Sequential(nn.Linear(2*(input_dim), big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Dropout(p=self.dropout),
-                                   nn.Linear(big_dim*2, big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Dropout(p=self.dropout),
-                                   nn.Linear(big_dim*2, big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim),
-                                   nn.Dropout(p=self.dropout)
+        '''Edge Conv encoder part '''
+        self.enc_edge_convs = ModuleList()
+        self.enc_edge_convs.append(
+            EdgeConvLayer(in_dim = input_dim, out_dim = big_dim, 
+                dropout = dropout, batch_norm = True, activation=activation)
         )
-        encoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim), big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim),
-                                   nn.Dropout(p=self.dropout),
-                                   nn.Linear(big_dim, int(big_dim/2)),
-                                   activation,
-                                   nn.BatchNorm1d(int(big_dim/2)),
+        for _ in range(num_conv_layers - 2):
+            conv = EdgeConvLayer(in_dim = big_dim *(1+heads), out_dim = big_dim, 
+                dropout = dropout, batch_norm = True, activation=activation)
+            self.enc_edge_convs.append(conv)
+        self.enc_edge_convs.append(EdgeConvLayer(in_dim = big_dim *(1+heads), out_dim = int(big_dim/2), 
+                dropout = dropout, batch_norm = True, activation=activation)
         )
-        decoder_nn_1 = nn.Sequential(nn.Linear(2*(hidden_dim), big_dim),
-                                   activation,
-                                   nn.Linear(big_dim, big_dim),
-                                   nn.BatchNorm1d(big_dim),
-                                   nn.Dropout(p=self.dropout),
-                                   activation,
-                                   nn.Linear(big_dim, big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Dropout(p=self.dropout)
+        '''Edge Conv decoder part '''
+        self.dec_edge_convs = ModuleList()
+        self.dec_edge_convs.append(
+            EdgeConvLayer(in_dim = hidden_dim, out_dim = big_dim, 
+                dropout = dropout, batch_norm = True, activation=activation)
         )
-        decoder_nn_2 = nn.Sequential(nn.Linear(2*(big_dim*2), big_dim*2),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim*2),
-                                   nn.Dropout(p=self.dropout),
-                                   nn.Linear(big_dim*2, big_dim),
-                                   activation,
-                                   nn.BatchNorm1d(big_dim),
-                                   nn.Linear(big_dim, output_dim)
+        for _ in range(num_conv_layers - 2):
+            conv = EdgeConvLayer(in_dim = big_dim *(1+heads), out_dim = big_dim, 
+                dropout = dropout, batch_norm = True, activation=activation)
+            self.dec_edge_convs.append(conv)
+        self.dec_edge_convs.append(EdgeConvLayer(in_dim = big_dim *(1+heads), out_dim = output_dim, 
+                dropout = dropout, batch_norm = True, activation=activation)
         )
 
-        self.encoder_1 = EdgeConv(nn=encoder_nn_1,aggr=aggr)
-        self.encoder_2 = EdgeConv(nn=encoder_nn_2,aggr=aggr)
-        self.decoder_1 = EdgeConv(nn=decoder_nn_1,aggr=aggr)
-        self.decoder_2 = EdgeConv(nn=decoder_nn_2,aggr=aggr)
-
-
-        self.enc_convs = ModuleList()
-        self.enc_convs.append(
-            GATLayer(
-                in_dim = input_dim, 
-                out_dim = big_dim, 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+        ''' GAT encoder part '''
+        self.enc_gat_convs = ModuleList()
+        self.enc_gat_convs.append(
+            GATLayer(in_dim = input_dim, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True, activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = True
             )
         )
         for _ in range(num_conv_layers - 2):
-            conv = GATLayer(
-                in_dim = big_dim * heads, 
-                out_dim = big_dim, 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+            conv = GATLayer(in_dim = big_dim *(1+heads), out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = True
             )
-            self.enc_convs.append(conv)
-        self.enc_convs.append(
-            GATLayer(
-                in_dim = big_dim * heads, 
-                out_dim = int(big_dim/2), 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+            self.enc_gat_convs.append(conv)
+        self.enc_gat_convs.append(
+            GATLayer(in_dim = big_dim *(1+heads), out_dim = int(big_dim/2), 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = False
             ))
 
-        self.dec_convs = ModuleList()
-        self.dec_convs.append(GATLayer(
-                in_dim = hidden_dim, 
-                out_dim = big_dim, 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+        ''' GAT decoder part '''
+        self.dec_gat_convs = ModuleList()
+        self.dec_gat_convs.append(GATLayer(in_dim = hidden_dim, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = True
             ))
-        self.dec_convs.append(GATLayer(
-                in_dim = big_dim*heads, 
-                out_dim = big_dim, 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+        for _ in range(num_conv_layers - 2):
+            conv = GATLayer(in_dim = big_dim *(1+heads), out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = True
-            ))       
-        self.dec_convs.append(GATLayer(
-                in_dim = big_dim*heads, 
-                out_dim = output_dim, 
-                num_heads = heads, 
-                dropout = dropout, 
-                batch_norm = True,
-                activation=activation,
-                negative_slope=negative_slope,
-                add_self_loops=True,
+            )
+            self.dec_gat_convs.append(conv)       
+        self.dec_gat_convs.append(GATLayer(in_dim = big_dim *(1+heads), out_dim = output_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
                 concat = False
             ))
 
@@ -853,34 +825,50 @@ class TriangularSylvesterVAE_EdgeAttentionLayer(TriangularSylvesterVAE):
 
 
     def encode(self, x, edge_index):
-        x_cloud = self.encoder_1(x,edge_index)
-        x_cloud = self.encoder_2(x_cloud,edge_index)
+        x_edge = self.enc_edge_convs[0](x,edge_index)
+        x_gat = self.enc_gat_convs[0](x,edge_index)
+        x_tot = torch.cat((x_edge, x_gat), dim=1)
 
-        x_gat = x
-        for conv in self.enc_convs[:-1]:
-            x_gat = conv(x_gat, edge_index)
-        x_gat = self.enc_convs[-1](x_gat, edge_index) 
+        for i_layer in range(1,self.num_conv_layers - 1,1):
 
-        x_tot = torch.cat((x_cloud, x_gat), dim=1)
-        #x_tot = torch.add(x_cloud, x_gat)
+            gat_conv = self.enc_gat_convs[i_layer]
+            x_gat = gat_conv(x_tot, edge_index)
+
+            edge_conv = self.enc_edge_convs[i_layer]
+            x_edge = edge_conv(x_tot, edge_index)
+
+            x_tot = torch.cat((x_edge, x_gat), dim=1)
+
+        x_gat = self.enc_gat_convs[-1](x_tot, edge_index) 
+        x_edge = self.enc_edge_convs[-1](x_tot, edge_index) 
+        x_tot = torch.cat((x_edge, x_gat), dim=1)
+
         return x_tot
 
 
     def decode(self, x, edge_index):
-        x_cloud = self.decoder_1(x,edge_index)
-        x_cloud = self.decoder_2(x_cloud,edge_index)
+        x_edge = self.dec_edge_convs[0](x,edge_index)
+        x_gat = self.dec_gat_convs[0](x,edge_index)
+        x_tot = torch.cat((x_edge, x_gat), dim=1)
 
-        x_gat = x
-        for conv in self.dec_convs[:-1]:
-            x_gat = conv(x_gat, edge_index)
-        x_gat = self.dec_convs[-1](x_gat, edge_index) 
+        for i_layer in range(1,self.num_conv_layers - 1,1):
 
-        x_tot = torch.cat((x_cloud, x_gat), dim=1)
+            gat_conv = self.dec_gat_convs[i_layer]
+            x_gat = gat_conv(x_tot, edge_index)
+
+            edge_conv = self.dec_edge_convs[i_layer]
+            x_edge = edge_conv(x_tot, edge_index)
+
+            x_tot = torch.cat((x_edge, x_gat), dim=1)
+
+        x_gat = self.dec_gat_convs[-1](x_tot, edge_index) 
+        x_edge = self.dec_edge_convs[-1](x_tot, edge_index) 
+        x_tot = torch.cat((x_edge, x_gat), dim=1)
+
         x_tot = self.lin_out(x_tot) 
         x_tot = self.activation(x_tot)
         x_tot = self.lin_out_2(x_tot) 
 
-        #x_tot = torch.add(x_cloud, x_gat)
         return x_tot
 
 
