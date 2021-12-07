@@ -8,8 +8,8 @@ import torch.nn.functional as F
 import torch_geometric.transforms as T
 from torch_geometric.data import Data
 from torch_scatter import scatter_mean, scatter
-from torch.nn import Sequential as Seq, Linear as Lin, ReLU
-from torch_geometric.nn import MetaLayer, EdgeConv, GATConv, GATv2Conv ,global_mean_pool, DynamicEdgeConv, BatchNorm
+from torch_geometric.nn import MetaLayer, EdgeConv, GATConv, GATv2Conv, global_mean_pool, DynamicEdgeConv, BatchNorm
+from torch_geometric.nn import PointTransformerConv
 from torch.autograd import Variable
 from torch.nn import ModuleList
 
@@ -691,7 +691,7 @@ class GATLayer(nn.Module):
             out_channels=out_dim, 
             heads=num_heads,
             negative_slope=negative_slope,
-            dropout=dropout,
+            dropout=dropout, #dropout of attention coefficients
             add_self_loops=add_self_loops,
             concat=concat
         )  
@@ -705,12 +705,11 @@ class GATLayer(nn.Module):
     def forward(self, feature, edge_index):
         h = self.gatconv(feature, edge_index)
             
-        if self.activation:
-            h = self.activation(h)
-
         if self.batch_norm:
             h = self.batchnorm_h(h)
-            
+
+        if self.activation:
+            h = self.activation(h)
 
         return h
 
@@ -721,28 +720,62 @@ class EdgeConvLayer(nn.Module):
         self.activation = activation
         self.batch_norm = batch_norm
             
-
-        self.edgeconv = nn.Sequential(nn.Linear(2*(in_dim), out_dim),
-                                   activation,
-                                   nn.BatchNorm1d(out_dim),
-                                   nn.Dropout(p=dropout))
-
-        self.edgeconv = EdgeConv(nn=self.edgeconv,aggr=aggr)
-
-
         if self.batch_norm:
-            self.batchnorm_h = nn.BatchNorm1d(out_dim)
+            self.edgeconv = nn.Sequential(nn.Linear(2*(in_dim), out_dim),
+                                   nn.BatchNorm1d(out_dim),
+                                   activation,
+                                   nn.Dropout(p=dropout)) 
+        else :
+            self.edgeconv = nn.Sequential(nn.Linear(2*(in_dim), out_dim),
+                                   activation,
+                                   nn.Dropout(p=dropout))             
+
+        ###dropout in AE as a regularization 
+        self.edgeconv = EdgeConv(nn=self.edgeconv,aggr=aggr)
 
     def forward(self, feature, edge_index):
         h = self.edgeconv(feature, edge_index)
-            
-        if self.batch_norm:
-            h = self.batchnorm_h(h)
-            
-        if self.activation:
-            h = self.activation(h)
-            
+    
         return h
+
+
+def MLP(channels, batch_norm=True):
+    return nn.Sequential(*[
+        nn.Sequential(
+            nn.Linear(channels[i - 1], channels[i]),
+            nn.BatchNorm1d (channels[i]) if batch_norm else nn.Identity(),
+            nn.ReLU()
+        )
+        for i in range(1, len(channels))
+    ])
+
+
+
+class PointTransformerLayer(torch.nn.Module):
+    def __init__(self, in_channels, out_channels,pos_dim=2,batch_norm=True, activation=F.relu):
+        super().__init__()
+        self.activation = activation
+        self.lin_in = nn.Linear(in_channels, in_channels)
+        self.lin_out = nn.Linear(out_channels, out_channels)
+
+        self.pos_nn = MLP([pos_dim, out_channels], batch_norm=True)
+
+        self.attn_nn = MLP([out_channels,out_channels], batch_norm=True)
+
+        self.transformer = PointTransformerConv(
+            in_channels,
+            out_channels,
+            pos_nn=self.pos_nn,
+            attn_nn=self.attn_nn
+        )
+
+    def forward(self, x, pos, edge_index):
+        x = self.lin_in(x)
+        x = self.activation(x)
+        x = self.transformer(x, pos, edge_index)
+        x = self.lin_out(x)
+        x = self.activation(x)
+        return x
 
 
 
@@ -870,6 +903,79 @@ class TriangularSylvesterVAE_EdgeAttentionInception(TriangularSylvesterVAE):
         x_tot = self.lin_out_2(x_tot) 
 
         return x_tot
+
+
+
+
+class TriangularSylvesterVAE_PointTransformer(TriangularSylvesterVAE):
+    def __init__(self, input_dim=4, output_dim=4,  big_dim=32, hidden_dim=2,num_conv_layers=3, heads=5,dropout=0.05,negative_slope=0.2, activation=nn.ReLU(),num_flows=6):
+        super().__init__(input_dim=input_dim, output_dim=output_dim,  big_dim=big_dim, hidden_dim=hidden_dim,activation=activation,num_flows=num_flows)
+
+        self.encoder_1, self.decoder_1 = None, None
+        self.activation = activation
+        self.num_conv_layers = num_conv_layers
+
+        '''Point Transformer encoder part '''
+        self.enc_point_convs = ModuleList()
+        self.enc_point_convs.append(PointTransformerLayer(in_channels=input_dim, out_channels=big_dim,batch_norm = True, activation=activation))
+        self.enc_point_convs.append(PointTransformerLayer(in_channels=big_dim, out_channels=big_dim*2,batch_norm = True, activation=activation))
+        self.enc_point_convs.append(PointTransformerLayer(in_channels=big_dim*2, out_channels=big_dim*2,batch_norm = True, activation=activation))
+
+        '''GAT encoder part '''
+        self.enc_gat_convs = ModuleList()
+        self.enc_gat_convs.append(
+            GATLayer(in_dim = big_dim*2, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True, activation=activation,negative_slope=negative_slope,add_self_loops=True,
+                concat = True
+            )
+        )
+        self.enc_gat_convs.append(
+            GATLayer(in_dim = big_dim *heads, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
+                concat = False
+            ))
+
+
+        ''' GAT decoder part '''
+        self.dec_gat_convs = ModuleList()
+        self.dec_gat_convs.append(GATLayer(in_dim = hidden_dim, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
+                concat = True
+            ))
+        for _ in range(num_conv_layers - 2):
+            conv = GATLayer(in_dim = big_dim *heads, out_dim = big_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
+                concat = True
+            )
+            self.dec_gat_convs.append(conv)       
+        self.dec_gat_convs.append(GATLayer(in_dim = big_dim *heads, out_dim = output_dim, 
+                num_heads = heads, dropout = dropout, batch_norm = True,activation=activation,negative_slope=negative_slope,add_self_loops=True,
+                concat = False
+            ))
+
+
+    def encode(self, x, edge_index):
+        x_pos = x[:,[5,6]] #get eta, phi, #TO DO : should not be hardcoded..
+        x_out = self.enc_point_convs[0](x, x_pos, edge_index)
+
+        for i_layer in range(1,len(self.enc_point_convs)):
+            transformer = self.enc_point_convs[i_layer]
+            x_out = transformer(x_out, x_pos, edge_index)
+
+        for i_layer in range(len(self.enc_gat_convs)):
+            gat_conv = self.enc_gat_convs[i_layer]
+            x_out = gat_conv(x_out, edge_index)
+
+        return x_out
+
+    def decode(self, x, edge_index):
+        x_gat = self.dec_gat_convs[0](x,edge_index)
+
+        for i_layer in range(1,len(self.dec_gat_convs),1):
+            gat_conv = self.dec_gat_convs[i_layer]
+            x_gat = gat_conv(x_gat, edge_index)
+
+        return x_gat
 
 
 

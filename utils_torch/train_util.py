@@ -5,7 +5,7 @@ import models_torch.models as models
 
 
 @torch.no_grad()
-def test(model, loader, total, batch_size, loss_ftn_obj,device, multi_gpu=False):
+def test(model, loader, total, batch_size, loss_ftn_obj,device, multi_gpu=False,kl_factor=1):
     model.eval()
 
     sum_loss = 0.
@@ -13,7 +13,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj,device, multi_gpu=False)
     sum_loss_kl = 0.
     t = tqdm.tqdm(enumerate(loader),total=total/batch_size)
     for i,data in t:
-        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu)
+        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu,kl_factor=kl_factor)
         if isinstance(batch_loss,tuple) :
             batch_loss,batch_loss_reco,batch_loss_kl = batch_loss[0].item(),batch_loss[1].item(),batch_loss[2].item()
             sum_loss += batch_loss
@@ -31,7 +31,7 @@ def test(model, loader, total, batch_size, loss_ftn_obj,device, multi_gpu=False)
 
 
 
-def train(model, optimizer, loader, total, batch_size, loss_ftn_obj, device, multi_gpu=False):
+def train(model, optimizer, loader, total, batch_size, loss_ftn_obj, device, multi_gpu=False,kl_factor=1):
     model.train()
 
     sum_loss = 0.
@@ -40,8 +40,7 @@ def train(model, optimizer, loader, total, batch_size, loss_ftn_obj, device, mul
     t = tqdm.tqdm(enumerate(loader),total=total/batch_size)
     for i,data in t:
         optimizer.zero_grad()
-
-        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu)
+        batch_loss, batch_output = forward_loss(model, data, loss_ftn_obj, device, multi_gpu=multi_gpu,kl_factor=kl_factor)
         if isinstance(batch_loss,tuple) :
             batch_loss[0].backward() #only total loss from vae
             optimizer.step()
@@ -63,7 +62,7 @@ def train(model, optimizer, loader, total, batch_size, loss_ftn_obj, device, mul
 
 
 # helper to perform correct loss
-def forward_loss(model, data, loss_ftn_obj, device, multi_gpu):
+def forward_loss(model, data, loss_ftn_obj, device, multi_gpu,kl_factor=1):
     
     if not multi_gpu:
         data = data.to(device)
@@ -85,7 +84,7 @@ def forward_loss(model, data, loss_ftn_obj, device, multi_gpu):
         batch_output, mu, log_var, log_det_j, z_0, z_last = model_output
         y = torch.cat([d.x for d in data]).to(device) if multi_gpu else data.x
         y = y.contiguous()
-        batch_loss_tot,batch_loss_reco,batch_loss_kl = loss_ftn_obj.loss_ftn(batch_output, y, mu, log_var,log_det_j, z_0, z_last)
+        batch_loss_tot,batch_loss_reco,batch_loss_kl = loss_ftn_obj.loss_ftn(batch_output, y, mu, log_var,log_det_j, z_0, z_last,kl_factor)
         batch_loss = (batch_loss_tot,batch_loss_reco,batch_loss_kl)
 
     elif 'vae_loss' in loss_ftn_obj.name :
@@ -96,7 +95,7 @@ def forward_loss(model, data, loss_ftn_obj, device, multi_gpu):
             batch_output, mu, log_var, log_det_j, z_0, z_last = model_output
         y = torch.cat([d.x for d in data]).to(device) if multi_gpu else data.x
         y = y.contiguous()
-        batch_loss_tot,batch_loss_reco,batch_loss_kl = loss_ftn_obj.loss_ftn(batch_output, y, mu, log_var)
+        batch_loss_tot,batch_loss_reco,batch_loss_kl = loss_ftn_obj.loss_ftn(batch_output, y, mu, log_var,kl_factor)
         batch_loss = (batch_loss_tot,batch_loss_reco,batch_loss_kl)
     else:
         batch_output = model(data)

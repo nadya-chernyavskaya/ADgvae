@@ -8,6 +8,7 @@ sys.path.append(os.path.abspath(os.path.join('../DarkFlow/darkflow/')))
 import vande.util.util_plotting as vande_plot
 import pofah.util.experiment as expe
 
+import torch_geometric
 import models_torch.models as models
 import models_torch.losses as losses
 import utils_torch.scaler as uscaler
@@ -49,21 +50,21 @@ num_workers = 0
 # ********************************************************
 RunParameters = namedtuple('Parameters', 'run_n  \
  n_epochs train_total_n valid_total_n proc batch_n learning_rate min_lr patience min_delta adam_betas plotting generator')
-params = RunParameters(run_n=43, 
+params = RunParameters(run_n=48, 
                        n_epochs=200, 
                        train_total_n=int(1e6 ),  #1e6 
                        valid_total_n=int(2e5), #1e5
                        proc='QCD_side',
                        batch_n=200, 
-                       learning_rate=0.0005,
+                       learning_rate=0.001,
                        min_lr=10e-8,
                        patience=3,
                        min_delta=0.01, #the larger the value, the less sensitive it is 
-                       adam_betas=(0.8,0.9), #0.7, 0.9 #default (0.9, 0.999)
+                       adam_betas=(0.8,0.99), #0.7, 0.9 #default (0.9, 0.999)
                        plotting=False,
                        generator=1) 
 
-#Parameters for the graph dataset
+#Parameters for the graph datase
 if 'QCD_side' in params.proc:
     side_reg = 1
     proc_type='==0'
@@ -92,17 +93,18 @@ experiment = expe.Experiment(params.run_n).setup(model_dir=True, fig_dir=True)
 # ********************************************************
 #       Models params
 # ********************************************************
-Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta num_flows activation initializer')
+Parameters = namedtuple('Settings', 'model_name  input_dim output_dim loss_func standardizer big_dim hidden_dim beta num_flows activation kl_warmup_time initializer')
 settings = Parameters(model_name ='TriangularSylvesterVAE_EdgeAttentionInception',#TriangularSylvesterVAE_GATStack',# 'PlanarEdgeNetVAE',#'TriangularSylvesterEdgeNetVAE',
                      input_dim=7,
                      output_dim=7, #3/4 or 7 
                      loss_func = 'vae_loss_mse',  #  vae_flows_loss_mse_coord vae_loss_mse vae_loss_mse_coord',
                      standardizer=uscaler.BasicStandardizer(),  
-                     big_dim=32,
+                     big_dim=42,
                      hidden_dim=2,
                      beta=0.5,
-                     num_flows=20,
+                     num_flows=6,
                      activation=nn.ReLU(), #nn.LeakyReLU(0.1), #nn.ELU(),#nn.ReLU(),
+                     kl_warmup_time = 20,
                      initializer='') #not yet set up 
 
 
@@ -127,11 +129,11 @@ print(f"Total number of train/valid events : {train_samples,valid_samples}")
 
 if multi_gpu:
     #shuffle is not going to work inside the DataLoaders, because of the way the Dataset is set up, shuffling option is passed to the dataset
-    train_loader = DataListLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
-    valid_loader = DataListLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
+    train_loader = DataListLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
+    valid_loader = DataListLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
 else:
-    train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
-    valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=True, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
+    valid_loader = DataLoader(valid_dataset, batch_size=params.batch_n, num_workers=num_workers, pin_memory=False, shuffle=False)
 
 # ********************************************************
 #       saving model parameters
@@ -204,12 +206,14 @@ pathlib.Path(osp.join(experiment.model_dir,'saved_models/')).mkdir(parents=True,
 if osp.isfile(modpath):
     model.load_state_dict(torch.load(modpath, map_location=device))
     model.to(device)
-    best_valid_loss,best_valid_loss_reco,best_valid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
-    print('Loaded model')
-    print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
     if osp.isfile(osp.join(experiment.model_dir,'losses.pt')):
         train_losses, valid_losses, start_epoch = torch.load(osp.join(experiment.model_dir,'losses.pt'))
         epoch = start_epoch
+    kl_factor = ((epoch)/settings.kl_warmup_time) * (epoch < settings.kl_warmup_time) + 1.0 * (epoch >= settings.kl_warmup_time)
+    best_valid_loss,best_valid_loss_reco,best_valid_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu,kl_factor=kl_factor)
+    print('Loaded model')
+    print(f'Saved model valid loss tot, reco, kl: {best_valid_loss,best_valid_loss_reco,best_valid_kl}')
+
 else:
     print('Creating new model')
     best_valid_loss = 9999999
@@ -223,9 +227,12 @@ stale_epochs = 0
 loss = best_valid_loss
 #for epoch in range(0, 0):
 for epoch in range(start_epoch, params.n_epochs):
+
+    kl_factor = ((epoch)/settings.kl_warmup_time) * (epoch < settings.kl_warmup_time) + 1.0 * (epoch >= settings.kl_warmup_time)
+
     modpath_epoch = osp.join(osp.join(experiment.model_dir,'saved_models/'), settings.model_name+'.epoch_{}.pth'.format(epoch))
-    loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
-    valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu)
+    loss,loss_reco,loss_kl = train.train(model, optimizer, train_loader, train_samples, params.batch_n, loss_ftn_obj,device,multi_gpu,kl_factor=kl_factor)
+    valid_loss,valid_loss_reco,valid_loss_kl = train.test(model, valid_loader, valid_samples, params.batch_n, loss_ftn_obj,device,multi_gpu,kl_factor=kl_factor)
 
     scheduler.step(valid_loss)
     train_losses['tot'].append(loss)
